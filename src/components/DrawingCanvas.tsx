@@ -167,8 +167,8 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     tempCanvas.height = cropHeight;
     const tempCtx = tempCanvas.getContext('2d')!;
     
-    tempCtx.fillStyle = '#ffffff';
-    tempCtx.fillRect(0, 0, cropWidth, cropHeight);
+    // Transparenter Hintergrund - nur Striche werden gespeichert
+    tempCtx.clearRect(0, 0, cropWidth, cropHeight);
     
     const tempImgData = tempCtx.getImageData(0, 0, cropWidth, cropHeight);
     const tempData = tempImgData.data;
@@ -198,14 +198,16 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     normCanvas.height = normalizedHeight;
     const normCtx = normCanvas.getContext('2d')!;
     
-    normCtx.fillStyle = '#ffffff';
-    normCtx.fillRect(0, 0, normalizedWidth, normalizedHeight);
+    // TRANSPARENTER Hintergrund statt weiß!
+    // So können sich Buchstaben überlappen ohne sich zu verdecken
+    normCtx.clearRect(0, 0, normalizedWidth, normalizedHeight);
     
     normCtx.imageSmoothingEnabled = true;
     normCtx.imageSmoothingQuality = 'high';
     normCtx.drawImage(tempCanvas, 0, 0, normalizedWidth, normalizedHeight);
     
-    const imageData = normCanvas.toDataURL('image/jpeg', 0.85);
+    // PNG statt JPEG (PNG unterstützt Transparenz)
+    const imageData = normCanvas.toDataURL('image/png');
     onSave(imageData, normalizedWidth, normalizedHeight);
   }, [hasDrawn, onSave]);
 

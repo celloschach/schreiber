@@ -21,10 +21,10 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
-    // Hilfslinien
-    ctx.strokeStyle = '#e5e7eb';
+    // Hilfslinien (sehr hell, werden beim Speichern herausgefiltert)
+    ctx.strokeStyle = '#f0f0f0';
     ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
+    ctx.setLineDash([3, 3]);
     
     // Mittellinie
     ctx.beginPath();
@@ -40,11 +40,11 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     ctx.setLineDash([]);
     
-    // Zeichen im Hintergrund (blass) - Groß oder Klein
+    // Zeichen im Hintergrund (sehr blass — wird beim Speichern herausgefiltert)
     const isUpperCase = currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase();
     const displayChar = currentChar === ' ' ? '' : currentChar;
     
-    ctx.fillStyle = '#f0f0f0';
+    ctx.fillStyle = '#f5f5f5'; // Sehr hell — unter dem Schwellenwert beim Speichern
     const fontSize = isUpperCase ? CANVAS_HEIGHT * 0.7 : CANVAS_HEIGHT * 0.65;
     ctx.font = `bold ${fontSize}px Georgia, serif`;
     ctx.textAlign = 'center';
@@ -127,25 +127,26 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
     const imgData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    const data = imgData.data;
     
-    // Bounding Box finden - suche nach nicht-weißen Pixeln
-    // Hintergrund ist #ffffff (255,255,255), Hilfslinien sind #e5e7eb (229,231,235)
-    // Das Guide-Zeichen ist #f0f0f0 (240,240,240)
-    // Wir suchen nach Pixeln die deutlich dunkler sind
+    // Schwellenwert: Alles was heller als dieser Wert ist, gilt als "Hintergrund"
+    // Hilfslinien sind #f0f0f0 (240), Guide-Zeichen ist #f5f5f5 (245)
+    // Gezeichnete Striche sind deutlich dunkler
+    const BG_THRESHOLD = 220;
+    
+    // Bounding Box der gezeichneten Striche finden
     let minX = CANVAS_WIDTH, minY = CANVAS_HEIGHT, maxX = 0, maxY = 0;
     let found = false;
-    
-    const threshold = 200; // Alles unter diesem Wert gilt als "gezeichnet"
     
     for (let y = 0; y < CANVAS_HEIGHT; y++) {
       for (let x = 0; x < CANVAS_WIDTH; x++) {
         const idx = (y * CANVAS_WIDTH + x) * 4;
-        const r = imgData.data[idx];
-        const g = imgData.data[idx + 1];
-        const b = imgData.data[idx + 2];
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
         
-        // Prüfe ob Pixel dunkler als der Hintergrund/die Hilfslinien
-        if (r < threshold || g < threshold || b < threshold) {
+        // Nur Pixel die deutlich dunkler als der Hintergrund sind
+        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
           maxX = Math.max(maxX, x);
@@ -157,8 +158,8 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     if (!found) return;
     
-    // Padding hinzufügen
-    const padding = 6;
+    // Padding
+    const padding = 4;
     minX = Math.max(0, minX - padding);
     minY = Math.max(0, minY - padding);
     maxX = Math.min(CANVAS_WIDTH - 1, maxX + padding);
@@ -167,21 +168,44 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
     
-    // Neues Canvas mit dem ausgeschnittenen Bereich
+    // Neues Canvas: Sauberer weißer Hintergrund + nur die Striche
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = cropWidth;
     cropCanvas.height = cropHeight;
     const cropCtx = cropCanvas.getContext('2d')!;
     
-    // Weißen Hintergrund
+    // Komplett weißer Hintergrund
     cropCtx.fillStyle = '#ffffff';
     cropCtx.fillRect(0, 0, cropWidth, cropHeight);
     
-    // Gezeichneten Bereich kopieren
-    cropCtx.drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    // Nur die gezeichneten Pixel übertragen (alles was dunkel genug ist)
+    const cropImgData = cropCtx.getImageData(0, 0, cropWidth, cropHeight);
+    const cropData = cropImgData.data;
     
-    // Als kleines JPEG speichern
-    const imageData = cropCanvas.toDataURL('image/jpeg', 0.8);
+    for (let y = 0; y < cropHeight; y++) {
+      for (let x = 0; x < cropWidth; x++) {
+        const srcIdx = ((y + minY) * CANVAS_WIDTH + (x + minX)) * 4;
+        const dstIdx = (y * cropWidth + x) * 4;
+        
+        const r = data[srcIdx];
+        const g = data[srcIdx + 1];
+        const b = data[srcIdx + 2];
+        
+        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
+          // Das ist ein gezeichneter Strich — übertragen
+          cropData[dstIdx] = r;
+          cropData[dstIdx + 1] = g;
+          cropData[dstIdx + 2] = b;
+          cropData[dstIdx + 3] = 255;
+        }
+        // Sonst: weiß lassen (bereits gesetzt durch fillRect)
+      }
+    }
+    
+    cropCtx.putImageData(cropImgData, 0, 0);
+    
+    // Als JPEG speichern (hohe Qualität für saubere Kanten)
+    const imageData = cropCanvas.toDataURL('image/jpeg', 0.85);
     onSave(imageData, cropWidth, cropHeight);
   }, [hasDrawn, onSave]);
 

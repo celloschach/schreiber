@@ -2,8 +2,9 @@ import { DrawnChar } from '../types';
 
 /**
  * Rendert einen Text als zusammenhängendes Canvas-Bild
- * - Einheitlicher Hintergrund
- * - Buchstaben in Wörtern nahe beieinander
+ * - Einheitlicher cremefarbener Hintergrund
+ * - Buchstaben in Wörtern sehr nah beieinander (überlappend)
+ * - Große Abstände zwischen Wörtern
  * - Mehr Samples = natürlichere Variation
  */
 export async function renderText(
@@ -35,7 +36,6 @@ export async function renderText(
     
     const variants = chars[char];
     if (variants && variants.length > 0) {
-      // Ersten als Referenz für Metriken nehmen
       const ref = variants[0];
       
       const promise = new Promise<void>((resolve) => {
@@ -54,14 +54,49 @@ export async function renderText(
       });
       loadPromises.push(promise);
       
-      // Alle Varianten laden
+      // Alle Varianten laden und Hintergrund entfernen
       for (let i = 0; i < variants.length; i++) {
         const v = variants[i];
         const p = new Promise<void>((resolve) => {
           const img = new Image();
           img.onload = () => {
-            charImages.set(char + '_' + i, img);
-            resolve();
+            // Hintergrund entfernen: Helles wird transparent
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
+            const tempCtx = tempCanvas.getContext('2d')!;
+            tempCtx.drawImage(img, 0, 0);
+            
+            const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = imgData.data;
+            
+            // Schwellenwert für Hintergrund
+            const BG_THRESHOLD = 230;
+            
+            for (let j = 0; j < data.length; j += 4) {
+              const r = data[j];
+              const g = data[j + 1];
+              const b = data[j + 2];
+              
+              // Wenn Pixel hell genug ist → transparent machen
+              if (r > BG_THRESHOLD && g > BG_THRESHOLD && b > BG_THRESHOLD) {
+                data[j + 3] = 0; // Alpha = 0 (transparent)
+              }
+            }
+            
+            tempCtx.putImageData(imgData, 0, 0);
+            
+            // Als PNG mit Transparenz speichern
+            const cleanImg = new Image();
+            cleanImg.onload = () => {
+              charImages.set(char + '_' + i, cleanImg);
+              resolve();
+            };
+            cleanImg.onerror = () => {
+              charImages.set(char + '_' + i, img); // Fallback
+              resolve();
+            };
+            cleanImg.src = tempCanvas.toDataURL('image/png');
           };
           img.onerror = () => resolve();
           img.src = v.imageData;
@@ -73,10 +108,11 @@ export async function renderText(
   
   await Promise.all(loadPromises);
   
-  // Abstand berechnen: Buchstaben in einem Wort sollen nah beieinander sein
-  // In echter Handschrift überlappen sich Buchstaben leicht
-  const letterSpacing = -fontSize * 0.08; // Negativ = Überlappung
-  const wordSpacing = fontSize * 0.3;
+  // ABSTÄNDE:
+  // Buchstaben innerhalb eines Wortes: sehr nah, überlappend
+  const letterSpacing = -fontSize * 0.18; // Stark negativ = Überlappung
+  // Zwischen Wörtern: großer Abstand
+  const wordSpacing = fontSize * 0.55;
   const lineHeight = fontSize * 1.5;
   
   // Zeilen berechnen
@@ -99,9 +135,10 @@ export async function renderText(
       const metrics = charMetrics.get(char);
       if (metrics) {
         const scale = fontSize / metrics.height;
+        // Effektive Breite = Bildbreite + Letter-Spacing (negativ!)
         charWidth = metrics.width * scale + letterSpacing;
       } else {
-        charWidth = fontSize * 0.5 + letterSpacing;
+        charWidth = fontSize * 0.4 + letterSpacing;
       }
     }
     
@@ -126,7 +163,7 @@ export async function renderText(
   canvas.height = canvasHeight;
   const ctx = canvas.getContext('2d')!;
   
-  // Einheitlicher Hintergrund - keine Textur!
+  // Einheitlicher Hintergrund — KEINE Textur
   ctx.fillStyle = backgroundColor;
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   
@@ -149,20 +186,19 @@ export async function renderText(
         const drawWidth = metrics.width * scale;
         const drawHeight = fontSize;
         
-        // Variation basierend auf Anzahl der Samples:
-        // Wenige Samples = wenig Variation, viele Samples = mehr natürliche Variation
+        // Variation basierend auf Anzahl der Samples
         const variantCount = metrics.variants;
-        const variationFactor = Math.min(variantCount / 5, 1); // 0 bis 1
+        const variationFactor = Math.min(variantCount / 5, 1);
         
         // Zufällige Variante auswählen
         const variantIdx = Math.floor(Math.random() * variantCount);
         const img = charImages.get(char + '_' + variantIdx);
         
         if (img) {
-          // Natürliche Variationen - stärker bei mehr Samples
-          const maxRotation = 0.03 * variationFactor; // Max ~1.7° bei vielen Samples
-          const maxOffset = 1.5 * variationFactor; // Max 1.5px bei vielen Samples
-          const maxScaleVar = 0.03 * variationFactor; // Max 3% bei vielen Samples
+          // Natürliche Variationen — stärker bei mehr Samples
+          const maxRotation = 0.025 * variationFactor;
+          const maxOffset = 1.2 * variationFactor;
+          const maxScaleVar = 0.025 * variationFactor;
           
           const rotation = (Math.random() - 0.5) * 2 * maxRotation;
           const yOffset = (Math.random() - 0.5) * 2 * maxOffset;
@@ -173,22 +209,29 @@ export async function renderText(
           ctx.rotate(rotation);
           ctx.scale(scaleVar, scaleVar);
           
+          // 'multiply' Modus: Weiße/helle Pixel werden transparent,
+          // nur die dunklen Striche werden gezeichnet.
+          // So wird ein eventuell grauer Hintergrund unsichtbar.
+          ctx.globalCompositeOperation = 'multiply';
           ctx.drawImage(img, -drawWidth / 2, -drawHeight * 0.85, drawWidth, drawHeight);
+          ctx.globalCompositeOperation = 'source-over';
+          
           ctx.restore();
         }
         
+        // Nächstes x: aktuelle Position + Bildbreite + negativer Spacing
         x += drawWidth + letterSpacing;
       } else {
         // Fallback für nicht gelernte Zeichen
         ctx.save();
         ctx.font = `italic ${fontSize}px Georgia, serif`;
         ctx.fillStyle = penColor;
-        ctx.globalAlpha = 0.6;
+        ctx.globalAlpha = 0.5;
         ctx.fillText(char, x, y);
         ctx.restore();
         ctx.globalAlpha = 1;
         
-        x += fontSize * 0.5 + letterSpacing;
+        x += fontSize * 0.4 + letterSpacing;
       }
     }
     
@@ -207,7 +250,6 @@ export function getAlphabetCoverage(chars: Record<string, DrawnChar[]>): {
   coveredChars: string[];
   missingChars: string[];
 } {
-  // Kleinbuchstaben + Großbuchstaben + Zahlen + Satzzeichen
   const required = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-'.split('');
   const covered: string[] = [];
   const missing: string[] = [];

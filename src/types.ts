@@ -1,27 +1,21 @@
+import { CharacterMap } from './utils/handwritingRenderer';
+
 export interface HandwritingProfile {
   id: string;
   name: string;
   createdAt: Date;
-  samples: HandwritingSample[];
-  selectedFont: string;
+  characterMap: CharacterMap;
+  totalSamples: number;
   color: string;
-}
-
-export interface HandwritingSample {
-  id: string;
-  imageData: string;
-  recognizedText: string;
-  createdAt: Date;
 }
 
 export interface ConvertedText {
   id: string;
   originalText: string;
+  renderedImage: string;
   profileId: string;
   profileName: string;
-  font: string;
-  color: string;
   createdAt: Date;
 }
 
-export type AppView = 'scanner' | 'profiles' | 'converted' | 'profile-detail';
+export type AppView = 'profiles' | 'profile-detail' | 'converted';

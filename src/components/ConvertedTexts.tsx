@@ -22,7 +22,8 @@ export default function ConvertedTexts({ convertedTexts, onDelete }: ConvertedTe
           </div>
           <h3 className="text-xl font-semibold text-gray-700 mb-2">Noch keine konvertierten Texte</h3>
           <p className="text-gray-500 max-w-md mx-auto">
-            Scanne einen Computer-Text mit einem aktiven Handschrift-Profil, um ihn in Handschrift-Stil umzuwandeln.
+            Gehe zu einem Profil und konvertiere einen Text in deine Handschrift.
+            Der Text wird dann hier als Bild gespeichert.
           </p>
         </div>
       ) : (
@@ -48,32 +49,38 @@ export default function ConvertedTexts({ convertedTexts, onDelete }: ConvertedTe
                     })}
                   </span>
                 </div>
-                <button
-                  onClick={() => onDelete(item.id)}
-                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity p-1"
-                >
-                  <i className="fas fa-trash text-sm"></i>
-                </button>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={item.renderedImage}
+                    download={`handschrift-${item.id}.png`}
+                    className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-700 transition-opacity p-1"
+                    title="Bild herunterladen"
+                  >
+                    <i className="fas fa-download text-sm"></i>
+                  </a>
+                  <button
+                    onClick={() => onDelete(item.id)}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity p-1"
+                  >
+                    <i className="fas fa-trash text-sm"></i>
+                  </button>
+                </div>
               </div>
 
               {/* Original Text */}
               <div className="px-5 py-3 border-b border-gray-50">
-                <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">Original</p>
-                <p className="text-sm text-gray-600 font-mono leading-relaxed">{item.originalText}</p>
+                <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">Original-Text</p>
+                <p className="text-sm text-gray-600 leading-relaxed">{item.originalText}</p>
               </div>
 
-              {/* Handwriting Text */}
-              <div className="px-5 py-5 bg-gradient-to-br from-amber-50/50 to-orange-50/50">
-                <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Handschrift</p>
-                <div
-                  className="leading-relaxed text-xl"
-                  style={{
-                    fontFamily: `'${item.font}', cursive`,
-                    color: item.color,
-                  }}
-                >
-                  {item.originalText}
-                </div>
+              {/* Rendered Image */}
+              <div className="px-5 py-4 bg-gradient-to-br from-amber-50/50 to-orange-50/50">
+                <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Deine Handschrift</p>
+                <img
+                  src={item.renderedImage}
+                  alt="Handschrift"
+                  className="w-full rounded-lg border border-amber-100"
+                />
               </div>
             </div>
           ))}

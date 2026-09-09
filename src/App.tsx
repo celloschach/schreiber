@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { HandwritingProfile, HandwritingSample, ConvertedText, AppView } from './types';
+import { HandwritingProfile, ConvertedText, AppView } from './types';
+import { CharacterMap } from './utils/handwritingRenderer';
 import HandwritingProfiles from './components/HandwritingProfiles';
 import ProfileDetail from './components/ProfileDetail';
 import ConvertedTexts from './components/ConvertedTexts';
@@ -7,22 +8,29 @@ import ConvertedTexts from './components/ConvertedTexts';
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('profiles');
   const [profiles, setProfiles] = useState<HandwritingProfile[]>(() => {
-    const saved = localStorage.getItem('handscan-profiles');
+    const saved = localStorage.getItem('handscan-profiles-v2');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed.map((p: any) => ({
-        ...p,
-        createdAt: new Date(p.createdAt),
-        samples: p.samples.map((s: any) => ({ ...s, createdAt: new Date(s.createdAt) }))
-      }));
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((p: any) => ({
+          ...p,
+          createdAt: new Date(p.createdAt),
+        }));
+      } catch {
+        return [];
+      }
     }
     return [];
   });
   const [convertedTexts, setConvertedTexts] = useState<ConvertedText[]>(() => {
-    const saved = localStorage.getItem('handscan-converted');
+    const saved = localStorage.getItem('handscan-converted-v2');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed.map((t: any) => ({ ...t, createdAt: new Date(t.createdAt) }));
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((t: any) => ({ ...t, createdAt: new Date(t.createdAt) }));
+      } catch {
+        return [];
+      }
     }
     return [];
   });
@@ -31,11 +39,11 @@ export default function App() {
 
   // Save to localStorage
   useEffect(() => {
-    localStorage.setItem('handscan-profiles', JSON.stringify(profiles));
+    localStorage.setItem('handscan-profiles-v2', JSON.stringify(profiles));
   }, [profiles]);
 
   useEffect(() => {
-    localStorage.setItem('handscan-converted', JSON.stringify(convertedTexts));
+    localStorage.setItem('handscan-converted-v2', JSON.stringify(convertedTexts));
   }, [convertedTexts]);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -43,17 +51,17 @@ export default function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleCreateProfile = (name: string, font: string, color: string) => {
+  const handleCreateProfile = (name: string, color: string) => {
     const newProfile: HandwritingProfile = {
       id: Date.now().toString(),
       name,
       createdAt: new Date(),
-      samples: [],
-      selectedFont: font,
+      characterMap: {} as CharacterMap,
+      totalSamples: 0,
       color,
     };
     setProfiles(prev => [...prev, newProfile]);
-    showNotification(`Profil "${name}" erstellt!`);
+    showNotification(`Profil "${name}" erstellt! Scanne jetzt deine Buchstaben.`);
   };
 
   const handleSelectProfile = (profile: HandwritingProfile) => {
@@ -66,37 +74,23 @@ export default function App() {
     showNotification('Profil gelöscht');
   };
 
-  const handleAddSample = (profileId: string, text: string, imageData: string) => {
-    const newSample: HandwritingSample = {
-      id: Date.now().toString(),
-      imageData,
-      recognizedText: text,
-      createdAt: new Date(),
-    };
-    setProfiles(prev => prev.map(p => {
-      if (p.id === profileId) {
-        return { ...p, samples: [...p.samples, newSample] };
-      }
-      return p;
-    }));
-    if (selectedProfile && selectedProfile.id === profileId) {
-      setSelectedProfile(prev => prev ? { ...prev, samples: [...prev.samples, newSample] } : null);
-    }
-    showNotification('Sample hinzugefügt!');
+  const handleUpdateProfile = (updatedProfile: HandwritingProfile) => {
+    setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? updatedProfile : p));
+    setSelectedProfile(updatedProfile);
+    showNotification('Buchstaben erfolgreich gelernt!');
   };
 
-  const handleConvertText = (text: string, profile: HandwritingProfile) => {
+  const handleConvertText = (text: string, renderedImage: string, profile: HandwritingProfile) => {
     const converted: ConvertedText = {
       id: Date.now().toString(),
       originalText: text,
+      renderedImage,
       profileId: profile.id,
       profileName: profile.name,
-      font: profile.selectedFont,
-      color: profile.color,
       createdAt: new Date(),
     };
     setConvertedTexts(prev => [converted, ...prev]);
-    showNotification('Text in Handschrift konvertiert!');
+    showNotification('Text in Handschrift konvertiert und gespeichert!');
   };
 
   const handleDeleteConverted = (id: string) => {
@@ -127,7 +121,7 @@ export default function App() {
                 <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
                   HandScan
                 </h1>
-                <p className="text-xs text-gray-500 -mt-0.5">Handschrift Scanner & Konverter</p>
+                <p className="text-xs text-gray-500 -mt-0.5">Deine Handschrift, digitalisiert</p>
               </div>
             </div>
 
@@ -178,7 +172,7 @@ export default function App() {
           <ProfileDetail
             profile={selectedProfile}
             onBack={() => setCurrentView('profiles')}
-            onAddSample={handleAddSample}
+            onUpdateProfile={handleUpdateProfile}
             onConvertText={handleConvertText}
           />
         )}
@@ -192,7 +186,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="text-center py-6 text-sm text-gray-400">
-        <p>HandScan — Deine Handschrift, digitalisiert ✨</p>
+        <p>HandScan — Lerne deine Handschrift, konvertiere jeden Text ✨</p>
       </footer>
     </div>
   );

@@ -173,9 +173,10 @@ export async function renderText(
           // Der Keller-Teil muss unter die Basislinie ragen
           const lowerChar = char.toLowerCase();
           if ('gjpqy'.includes(lowerChar)) {
-            // Keller-Teil = 35px von 95px Gesamthöhe
-            // Skalierter Keller = drawHeight * (35/95)
-            baselineOffset += drawHeight * (35 / 95);
+            // x-height (60px) soll auf Baseline sitzen
+            // Keller (35px) ragt nach unten
+            // Also: baselineOffset = Anteil der x-height an der Gesamthöhe
+            baselineOffset = drawHeight * (60 / 95);
           }
           
           ctx.save();

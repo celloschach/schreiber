@@ -143,7 +143,7 @@ export default function ProfileDetail({ profile, onBack, onUpdateProfile, onConv
         setConvertText(ocrResult.text);
         
         if (profile.totalSamples > 0) {
-          const rendered = renderHandwriting(ocrResult.text, profile.characterMap, {
+          const rendered = await renderHandwriting(ocrResult.text, profile.characterMap, {
             fontSize: 36,
             lineHeight: 1.6,
             wordSpacing: 12,
@@ -229,7 +229,7 @@ export default function ProfileDetail({ profile, onBack, onUpdateProfile, onConv
           if (ocrResult.text.trim()) {
             setConvertText(ocrResult.text);
             if (profile.totalSamples > 0) {
-              const rendered = renderHandwriting(ocrResult.text, profile.characterMap, {
+              const rendered = await renderHandwriting(ocrResult.text, profile.characterMap, {
                 fontSize: 36, lineHeight: 1.6, wordSpacing: 12, charSpacing: 1,
                 backgroundColor: '#fffef5',
               });
@@ -251,10 +251,10 @@ export default function ProfileDetail({ profile, onBack, onUpdateProfile, onConv
     reader.readAsDataURL(file);
   }, [activeTab, learningMode, manualChars, profile, onUpdateProfile]);
 
-  const handleRenderText = () => {
+  const handleRenderText = async () => {
     if (!convertText.trim() || profile.totalSamples === 0) return;
     
-    const rendered = renderHandwriting(convertText, profile.characterMap, {
+    const rendered = await renderHandwriting(convertText, profile.characterMap, {
       fontSize: 36,
       lineHeight: 1.6,
       wordSpacing: 12,

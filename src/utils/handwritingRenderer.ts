@@ -3,6 +3,18 @@
  * Rendert Text mit den gelernten Buchstaben-Bildern
  */
 
+/**
+ * Lädt ein Bild asynchron
+ */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 export interface CharacterSample {
   id: string;
   char: string;
@@ -18,6 +30,7 @@ export interface CharacterMap {
 /**
  * Extrahiert einzelne Buchstaben aus einem Bild
  * Der Benutzer schreibt die Buchstaben in einer Zeile, getrennt durch kleine Lücken
+ * Erzeugt direkt komprimierte JPEG-Bilder für effiziente Speicherung
  */
 export async function extractCharacters(
   imageDataUrl: string,
@@ -29,10 +42,10 @@ export async function extractCharacters(
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d')!;
       
-      // Skalieren für bessere Erkennung
-      const scale = 2;
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
+      // Skalieren für bessere Erkennung, aber nicht zu groß
+      const scale = Math.min(2, 800 / Math.max(img.width, img.height));
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -122,7 +135,7 @@ export async function extractCharacters(
             samples.push({
               id: `${Date.now()}-${i}`,
               char: chars[i].toLowerCase(),
-              imageData: charCanvas.toDataURL('image/png'),
+              imageData: charCanvas.toDataURL('image/jpeg', 0.7),
               width: charCanvas.width,
               height: charCanvas.height,
             });
@@ -137,6 +150,8 @@ export async function extractCharacters(
           charCanvas.height = height;
           
           const charCtx = charCanvas.getContext('2d')!;
+          charCtx.fillStyle = 'white';
+          charCtx.fillRect(0, 0, charCanvas.width, charCanvas.height);
           charCtx.drawImage(
             canvas,
             i * charWidth, 0, charWidth, height,
@@ -146,7 +161,7 @@ export async function extractCharacters(
           samples.push({
             id: `${Date.now()}-${i}`,
             char: chars[i].toLowerCase(),
-            imageData: charCanvas.toDataURL('image/png'),
+            imageData: charCanvas.toDataURL('image/jpeg', 0.7),
             width: charCanvas.width,
             height: charCanvas.height,
           });
@@ -161,8 +176,9 @@ export async function extractCharacters(
 
 /**
  * Rendert einen Text mit den gelernten Buchstaben auf einem Canvas
+ * Asynchrone Version die Bilder korrekt lädt
  */
-export function renderHandwriting(
+export async function renderHandwriting(
   text: string,
   characterMap: CharacterMap,
   options: {
@@ -173,7 +189,7 @@ export function renderHandwriting(
     backgroundColor?: string;
     randomize?: boolean;
   } = {}
-): string {
+): Promise<string> {
   const {
     fontSize = 40,
     lineHeight = 1.5,
@@ -303,11 +319,8 @@ export function renderHandwriting(
         ctx.rotate(rotation);
         ctx.scale(scaleVariation, scaleVariation);
         
-        // Buchstaben-Bild laden und zeichnen
-        const charImg = new Image();
-        charImg.src = sample.imageData;
-        
-        // Synchron zeichnen (Bild ist bereits geladen als Data-URL)
+        // Buchstaben-Bild asynchron laden und zeichnen
+        const charImg = await loadImage(sample.imageData);
         ctx.drawImage(charImg, -scaledWidth / 2, -scaledHeight * 0.8, scaledWidth, scaledHeight);
         ctx.restore();
         

@@ -1,50 +1,52 @@
 import { useState, useEffect } from 'react';
 import { HandwritingProfile, ConvertedText, AppView } from './types';
 import { CharacterMap } from './utils/handwritingRenderer';
+import { compressCharacterMap } from './utils/imageCompression';
+import * as storage from './utils/storage';
 import HandwritingProfiles from './components/HandwritingProfiles';
 import ProfileDetail from './components/ProfileDetail';
 import ConvertedTexts from './components/ConvertedTexts';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('profiles');
-  const [profiles, setProfiles] = useState<HandwritingProfile[]>(() => {
-    const saved = localStorage.getItem('handscan-profiles-v2');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.map((p: any) => ({
-          ...p,
-          createdAt: new Date(p.createdAt),
-        }));
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
-  const [convertedTexts, setConvertedTexts] = useState<ConvertedText[]>(() => {
-    const saved = localStorage.getItem('handscan-converted-v2');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.map((t: any) => ({ ...t, createdAt: new Date(t.createdAt) }));
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
+  const [profiles, setProfiles] = useState<HandwritingProfile[]>([]);
+  const [convertedTexts, setConvertedTexts] = useState<ConvertedText[]>([]);
   const [selectedProfile, setSelectedProfile] = useState<HandwritingProfile | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Save to localStorage
+  // Load data from IndexedDB on mount
   useEffect(() => {
-    localStorage.setItem('handscan-profiles-v2', JSON.stringify(profiles));
-  }, [profiles]);
-
-  useEffect(() => {
-    localStorage.setItem('handscan-converted-v2', JSON.stringify(convertedTexts));
-  }, [convertedTexts]);
+    const loadData = async () => {
+      try {
+        // Migration von localStorage zu IndexedDB (einmalig)
+        await storage.migrateFromLocalStorage();
+        
+        // Daten aus IndexedDB laden
+        const [loadedProfiles, loadedConverted] = await Promise.all([
+          storage.getAllProfiles(),
+          storage.getAllConvertedTexts(),
+        ]);
+        
+        setProfiles(loadedProfiles.map((p: any) => ({
+          ...p,
+          createdAt: new Date(p.createdAt),
+        })));
+        
+        setConvertedTexts(loadedConverted.map((t: any) => ({
+          ...t,
+          createdAt: new Date(t.createdAt),
+        })));
+      } catch (error) {
+        console.error('Error loading data:', error);
+        showNotification('Fehler beim Laden der Daten', 'error');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadData();
+  }, []);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -60,7 +62,13 @@ export default function App() {
       totalSamples: 0,
       color,
     };
+    
     setProfiles(prev => [...prev, newProfile]);
+    storage.saveProfile(newProfile).catch(err => {
+      console.error('Error saving profile:', err);
+      showNotification('Fehler beim Speichern', 'error');
+    });
+    
     showNotification(`Profil "${name}" erstellt! Scanne jetzt deine Buchstaben.`);
   };
 
@@ -69,18 +77,39 @@ export default function App() {
     setCurrentView('profile-detail');
   };
 
-  const handleDeleteProfile = (id: string) => {
+  const handleDeleteProfile = async (id: string) => {
     setProfiles(prev => prev.filter(p => p.id !== id));
-    showNotification('Profil gelöscht');
+    
+    try {
+      await storage.deleteProfile(id);
+      showNotification('Profil gelöscht');
+    } catch (error) {
+      console.error('Error deleting profile:', error);
+      showNotification('Fehler beim Löschen', 'error');
+    }
   };
 
-  const handleUpdateProfile = (updatedProfile: HandwritingProfile) => {
-    setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? updatedProfile : p));
-    setSelectedProfile(updatedProfile);
-    showNotification('Buchstaben erfolgreich gelernt!');
+  const handleUpdateProfile = async (updatedProfile: HandwritingProfile) => {
+    // Bilder komprimieren vor dem Speichern
+    try {
+      const compressedMap = await compressCharacterMap(updatedProfile.characterMap);
+      const profileToSave = {
+        ...updatedProfile,
+        characterMap: compressedMap,
+      };
+      
+      setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? updatedProfile : p));
+      setSelectedProfile(updatedProfile);
+      
+      await storage.saveProfile(profileToSave);
+      showNotification('Buchstaben erfolgreich gelernt!');
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      showNotification('Fehler beim Speichern der Buchstaben', 'error');
+    }
   };
 
-  const handleConvertText = (text: string, renderedImage: string, profile: HandwritingProfile) => {
+  const handleConvertText = async (text: string, renderedImage: string, profile: HandwritingProfile) => {
     const converted: ConvertedText = {
       id: Date.now().toString(),
       originalText: text,
@@ -89,13 +118,40 @@ export default function App() {
       profileName: profile.name,
       createdAt: new Date(),
     };
+    
     setConvertedTexts(prev => [converted, ...prev]);
-    showNotification('Text in Handschrift konvertiert und gespeichert!');
+    
+    try {
+      await storage.saveConvertedText(converted);
+      showNotification('Text in Handschrift konvertiert und gespeichert!');
+    } catch (error) {
+      console.error('Error saving converted text:', error);
+      showNotification('Fehler beim Speichern', 'error');
+    }
   };
 
-  const handleDeleteConverted = (id: string) => {
+  const handleDeleteConverted = async (id: string) => {
     setConvertedTexts(prev => prev.filter(t => t.id !== id));
+    
+    try {
+      await storage.deleteConvertedText(id);
+    } catch (error) {
+      console.error('Error deleting converted text:', error);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-pink-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-center animate-pulse">
+            <i className="fas fa-pen-nib text-white text-2xl"></i>
+          </div>
+          <p className="text-gray-600 font-medium">HandScan wird geladen...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-pink-50">

@@ -7,8 +7,10 @@ interface DrawingCanvasProps {
   penSize: number;
 }
 
-// Standard-Höhe für alle Buchstaben (normalisiert)
-const NORMALIZED_HEIGHT = 120;
+// Ziel-Höhe für alle Buchstaben
+const TARGET_HEIGHT = 120;
+// Ziel-Linien-Dicke bei TARGET_HEIGHT (in Pixeln)
+const TARGET_LINE_THICKNESS = 7;
 
 export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -18,12 +20,12 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
 
   const CANVAS_WIDTH = 200;
   const CANVAS_HEIGHT = 240;
+  const BG_THRESHOLD = 220;
 
   const drawGuide = useCallback((ctx: CanvasRenderingContext2D) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
-    // Hilfslinien (sehr hell)
     ctx.strokeStyle = '#f0f0f0';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
@@ -40,7 +42,6 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     ctx.setLineDash([]);
     
-    // Guide-Zeichen (sehr blass)
     const isUpperCase = currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase();
     const displayChar = currentChar === ' ' ? '' : currentChar;
     
@@ -120,6 +121,138 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     setHasDrawn(false);
   };
 
+  /**
+   * Misst die durchschnittliche Linien-Dicke in einem Binärbild
+   * (Array von 0/1 Werten, 1 = dunkel/Linie)
+   */
+  const measureLineThickness = (binary: Uint8Array, width: number, height: number): number => {
+    // Mehrere horizontale Schnitte durch das Bild
+    const slices = 10;
+    const thicknesses: number[] = [];
+    
+    for (let s = 0; s < slices; s++) {
+      const y = Math.round((s + 0.5) * height / slices);
+      if (y >= height) continue;
+      
+      // Zusammenhängende dunkle Bereiche in dieser Zeile finden
+      let inLine = false;
+      let lineWidth = 0;
+      
+      for (let x = 0; x < width; x++) {
+        const isDark = binary[y * width + x] === 1;
+        if (isDark && !inLine) {
+          inLine = true;
+          lineWidth = 1;
+        } else if (isDark && inLine) {
+          lineWidth++;
+        } else if (!isDark && inLine) {
+          inLine = false;
+          if (lineWidth > 1) { // Nur relevante Linien (keine einzelnen Pixel)
+            thicknesses.push(lineWidth);
+          }
+        }
+      }
+      if (inLine && lineWidth > 1) {
+        thicknesses.push(lineWidth);
+      }
+    }
+    
+    if (thicknesses.length === 0) return 1;
+    
+    // Median berechnen (robuster gegen Ausreißer)
+    thicknesses.sort((a, b) => a - b);
+    return thicknesses[Math.floor(thicknesses.length / 2)];
+  };
+
+  /**
+   * Dilate: Vergrößert dunkle Bereiche (macht Linien dicker)
+   */
+  const dilate = (binary: Uint8Array, width: number, height: number, radius: number): Uint8Array => {
+    const result = new Uint8Array(binary);
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (binary[y * width + x] === 1) {
+          // Alle Pixel im Radius auf 1 setzen
+          for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+              if (dx * dx + dy * dy <= radius * radius) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  result[ny * width + nx] = 1;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    return result;
+  };
+
+  /**
+   * Erode: Verkleinert dunkle Bereiche (macht Linien dünner)
+   */
+  const erode = (binary: Uint8Array, width: number, height: number, radius: number): Uint8Array => {
+    const result = new Uint8Array(binary.length);
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (binary[y * width + x] === 1) {
+          // Prüfe ob alle Pixel im Radius auch 1 sind
+          let allDark = true;
+          for (let dy = -radius; dy <= radius && allDark; dy++) {
+            for (let dx = -radius; dx <= radius && allDark; dx++) {
+              if (dx * dx + dy * dy <= radius * radius) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx < 0 || nx >= width || ny < 0 || ny >= height || binary[ny * width + nx] === 0) {
+                  allDark = false;
+                }
+              }
+            }
+          }
+          if (allDark) {
+            result[y * width + x] = 1;
+          }
+        }
+      }
+    }
+    
+    return result;
+  };
+
+  /**
+   * Normalisiert die Linien-Dicke auf einen festen Wert
+   */
+  const normalizeLineThickness = (
+    binary: Uint8Array, 
+    width: number, 
+    height: number, 
+    targetThickness: number
+  ): Uint8Array => {
+    const currentThickness = measureLineThickness(binary, width, height);
+    
+    if (currentThickness <= 0) return binary;
+    
+    const diff = targetThickness - currentThickness;
+    
+    // Toleranz: Wenn die Dicke schon nah am Ziel ist, nichts tun
+    if (Math.abs(diff) < 1.2) return binary;
+    
+    if (diff > 0) {
+      // Linien zu dünn → dilate (dicker machen)
+      const radius = Math.round(Math.abs(diff) / 2);
+      return dilate(binary, width, height, Math.max(1, radius));
+    } else {
+      // Linien zu dick → erode (dünner machen)
+      const radius = Math.round(Math.abs(diff) / 2);
+      return erode(binary, width, height, Math.max(1, radius));
+    }
+  };
+
   const save = useCallback(() => {
     if (!hasDrawn) return;
     
@@ -128,20 +261,14 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const imgData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const data = imgData.data;
     
-    const BG_THRESHOLD = 220;
-    
-    // Bounding Box finden
+    // 1. Bounding Box finden
     let minX = CANVAS_WIDTH, minY = CANVAS_HEIGHT, maxX = 0, maxY = 0;
     let found = false;
     
     for (let y = 0; y < CANVAS_HEIGHT; y++) {
       for (let x = 0; x < CANVAS_WIDTH; x++) {
         const idx = (y * CANVAS_WIDTH + x) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        
-        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
+        if (data[idx] < BG_THRESHOLD || data[idx + 1] < BG_THRESHOLD || data[idx + 2] < BG_THRESHOLD) {
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
           maxX = Math.max(maxX, x);
@@ -153,7 +280,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     if (!found) return;
     
-    const padding = 4;
+    const padding = 3;
     minX = Math.max(0, minX - padding);
     minY = Math.max(0, minY - padding);
     maxX = Math.min(CANVAS_WIDTH - 1, maxX + padding);
@@ -162,68 +289,74 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
     
-    // === NORMALISIERUNG AUF EINHEITLICHE HÖHE ===
-    // Alle Buchstaben werden auf die gleiche Höhe skaliert
-    // Dadurch haben sie beim Rendern immer die gleiche Linien-Dicke
-    const scale = NORMALIZED_HEIGHT / cropHeight;
-    const normalizedWidth = Math.round(cropWidth * scale);
-    const normalizedHeight = NORMALIZED_HEIGHT;
+    // 2. Auf Ziel-Höhe skalieren (proportional)
+    const scale = TARGET_HEIGHT / cropHeight;
+    const scaledWidth = Math.round(cropWidth * scale);
+    const scaledHeight = TARGET_HEIGHT;
     
-    // Erst das Bild ausschneiden
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = cropWidth;
-    tempCanvas.height = cropHeight;
-    const tempCtx = tempCanvas.getContext('2d')!;
+    // Scaled Canvas erstellen
+    const scaledCanvas = document.createElement('canvas');
+    scaledCanvas.width = scaledWidth;
+    scaledCanvas.height = scaledHeight;
+    const scaledCtx = scaledCanvas.getContext('2d')!;
+    scaledCtx.imageSmoothingEnabled = true;
+    scaledCtx.imageSmoothingQuality = 'high';
+    scaledCtx.drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, scaledWidth, scaledHeight);
+    
+    // 3. Binärbild extrahieren (dunkle Pixel = 1)
+    const scaledData = scaledCtx.getImageData(0, 0, scaledWidth, scaledHeight).data;
+    const binary = new Uint8Array(scaledWidth * scaledHeight);
+    
+    for (let i = 0; i < binary.length; i++) {
+      const r = scaledData[i * 4];
+      const g = scaledData[i * 4 + 1];
+      const b = scaledData[i * 4 + 2];
+      binary[i] = (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) ? 1 : 0;
+    }
+    
+    // 4. Linien-Dicke normalisieren!
+    const normalizedBinary = normalizeLineThickness(binary, scaledWidth, scaledHeight, TARGET_LINE_THICKNESS);
+    
+    // 5. Ergebnis-Canvas mit weißem Hintergrund
+    const resultCanvas = document.createElement('canvas');
+    resultCanvas.width = scaledWidth;
+    resultCanvas.height = scaledHeight;
+    const resultCtx = resultCanvas.getContext('2d')!;
     
     // Weißer Hintergrund
-    tempCtx.fillStyle = '#ffffff';
-    tempCtx.fillRect(0, 0, cropWidth, cropHeight);
+    resultCtx.fillStyle = '#ffffff';
+    resultCtx.fillRect(0, 0, scaledWidth, scaledHeight);
     
-    // Nur gezeichnete Pixel übertragen
-    const tempImgData = tempCtx.getImageData(0, 0, cropWidth, cropHeight);
-    const tempData = tempImgData.data;
+    // Normalisierte Linien zeichnen
+    const resultImgData = resultCtx.getImageData(0, 0, scaledWidth, scaledHeight);
+    const resultData = resultImgData.data;
     
-    for (let y = 0; y < cropHeight; y++) {
-      for (let x = 0; x < cropWidth; x++) {
-        const srcIdx = ((y + minY) * CANVAS_WIDTH + (x + minX)) * 4;
-        const dstIdx = (y * cropWidth + x) * 4;
-        
-        const r = data[srcIdx];
-        const g = data[srcIdx + 1];
-        const b = data[srcIdx + 2];
-        
-        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
-          tempData[dstIdx] = r;
-          tempData[dstIdx + 1] = g;
-          tempData[dstIdx + 2] = b;
-          tempData[dstIdx + 3] = 255;
-        }
+    // Farbe aus penColor extrahieren
+    const tempEl = document.createElement('div');
+    tempEl.style.color = penColor;
+    document.body.appendChild(tempEl);
+    const computedColor = getComputedStyle(tempEl).color;
+    document.body.removeChild(tempEl);
+    const colorMatch = computedColor.match(/\d+/g);
+    const pr = colorMatch ? parseInt(colorMatch[0]) : 26;
+    const pg = colorMatch ? parseInt(colorMatch[1]) : 26;
+    const pb = colorMatch ? parseInt(colorMatch[2]) : 46;
+    
+    for (let i = 0; i < normalizedBinary.length; i++) {
+      if (normalizedBinary[i] === 1) {
+        resultData[i * 4] = pr;
+        resultData[i * 4 + 1] = pg;
+        resultData[i * 4 + 2] = pb;
+        resultData[i * 4 + 3] = 255;
       }
     }
     
-    tempCtx.putImageData(tempImgData, 0, 0);
+    resultCtx.putImageData(resultImgData, 0, 0);
     
-    // Jetzt auf normalisierte Größe skalieren
-    const normCanvas = document.createElement('canvas');
-    normCanvas.width = normalizedWidth;
-    normCanvas.height = normalizedHeight;
-    const normCtx = normCanvas.getContext('2d')!;
-    
-    // Weißen Hintergrund
-    normCtx.fillStyle = '#ffffff';
-    normCtx.fillRect(0, 0, normalizedWidth, normalizedHeight);
-    
-    // Hochwertige Skalierung
-    normCtx.imageSmoothingEnabled = true;
-    normCtx.imageSmoothingQuality = 'high';
-    normCtx.drawImage(tempCanvas, 0, 0, normalizedWidth, normalizedHeight);
-    
-    // Als JPEG speichern
-    const imageData = normCanvas.toDataURL('image/jpeg', 0.85);
-    
-    // Die gespeicherten Dimensionen sind die normalisierten
-    onSave(imageData, normalizedWidth, normalizedHeight);
-  }, [hasDrawn, onSave]);
+    // 6. Als JPEG speichern
+    const imageData = resultCanvas.toDataURL('image/jpeg', 0.85);
+    onSave(imageData, scaledWidth, scaledHeight);
+  }, [hasDrawn, onSave, penColor]);
 
   return (
     <div className="flex flex-col items-center">

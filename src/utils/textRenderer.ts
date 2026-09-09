@@ -165,18 +165,19 @@ export async function renderText(
           const yOffset = (Math.random() - 0.5) * 2 * maxOffset;
           const scaleVar = 1 + (Math.random() - 0.5) * 2 * maxScaleVar;
           
-          // Y-Position anpassen
+          // Y-Position anpassen - ALLE Buchstaben auf gleicher x-height
           let baselineOffset = drawHeight * 0.85;
           
-          // Buchstaben mit Unterlänge (Keller) tiefer positionieren
-          // g, j, p, q, y haben 95px Gesamthöhe (60px x-height + 35px Keller)
-          // Der Keller-Teil muss unter die Basislinie ragen
           const lowerChar = char.toLowerCase();
+          
+          // Keller-Buchstaben (g, j, p, q, y): x-height gleich wie normale Buchstaben
+          // Gesamthöhe = 95px (60px x-height + 35px Keller)
+          // baselineOffset muss so sein, dass die oberen 60px auf gleicher Höhe sind
           if ('gjpqy'.includes(lowerChar)) {
-            // x-height (60px) soll auf Baseline sitzen
-            // Keller (35px) ragt nach unten
-            // Also: baselineOffset = Anteil der x-height an der Gesamthöhe
-            baselineOffset = drawHeight * (60 / 95);
+            // drawHeight = fontSize * (95/120) = fontSize * 0.792
+            // Wir wollen: baselineOffset = fontSize * 0.425 (wie normale Buchstaben)
+            // Also: baselineOffset = drawHeight * (0.425 / 0.792) = drawHeight * 0.537
+            baselineOffset = drawHeight * 0.537;
           }
           
           ctx.save();

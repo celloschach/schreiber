@@ -68,8 +68,10 @@ export async function renderText(
   
   await Promise.all(loadPromises);
   
-  // Weniger Überlappung - Buchstaben haben normalen Abstand
-  const letterSpacing = -fontSize * 0.03;
+  // FESTE REGEL: Mindestabstand zwischen Buchstaben
+  // Niemals Überlappung - immer mindestens 5% der Schriftgröße Abstand
+  const minCharSpacing = fontSize * 0.05; // 5% = Mindestabstand
+  const letterSpacing = minCharSpacing; // Positiv = kein Überlappen
   const wordSpacing = fontSize * 0.55;
   const lineHeight = fontSize * 1.8;
   

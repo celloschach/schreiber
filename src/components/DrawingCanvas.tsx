@@ -8,35 +8,39 @@ interface DrawingCanvasProps {
 }
 
 // Intelligente Buchstaben-Höhen für natürliches Aussehen
+// Alle Kleinbuchstaben haben die gleiche x-height (60px)
+// Buchstaben mit Oberlänge ragen nach oben
+// Buchstaben mit Unterlänge ragen nach unten (Keller)
 const getNormalizedHeight = (char: string): number => {
   const lower = char.toLowerCase();
   
   // Großbuchstaben: volle Höhe (120px)
   if (char !== lower) return 120;
   
-  // Kleinbuchstaben mit Oberlänge (fast so groß wie Großbuchstaben)
-  // b, d, f, h, k, l, t
-  if ('bdfhklt'.includes(lower)) return 115;
+  // Kleinbuchstaben mit Oberlänge (ragen nach oben)
+  // b, d, f, h, k, l, t → x-height + Oberlänge
+  if ('bdfhklt'.includes(lower)) return 110;
   
-  // Kleinbuchstaben mit Unterlänge (Gesamthöhe inkl. Unterlänge)
-  // g, j, p, q, y
-  if ('gjpqy'.includes(lower)) return 140;
+  // Kleinbuchstaben mit Unterlänge (ragen nach unten in den Keller)
+  // g, j, p, q, y → x-height + Keller
+  // x-height = 60px, Keller = 35px → gesamt 95px
+  if ('gjpqy'.includes(lower)) return 95;
   
-  // Kleinbuchstaben ohne Oberlänge (ca. 50% der Großbuchstaben)
+  // Kleinbuchstaben ohne Ober-/Unterlänge (reine x-height)
   // a, c, e, m, n, o, r, s, u, v, w, x, z
   if ('acemnorsuvwxz'.includes(lower)) return 60;
   
-  // 'i' mit Punkt
-  if (lower === 'i') return 85;
+  // 'i' mit Punkt (x-height + Punkt)
+  if (lower === 'i') return 75;
   
-  // 'ß' 
+  // 'ß' (x-height)
   if (lower === 'ß') return 60;
   
-  // Zahlen
-  if (/[0-9]/.test(char)) return 100;
+  // Zahlen (x-height + klein wenig)
+  if (/[0-9]/.test(char)) return 80;
   
   // Satzzeichen
-  if ('.,!?-'.includes(char)) return 40;
+  if ('.,!?-'.includes(char)) return 30;
   
   // Default
   return 60;

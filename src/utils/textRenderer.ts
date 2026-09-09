@@ -68,9 +68,10 @@ export async function renderText(
   
   await Promise.all(loadPromises);
   
-  const letterSpacing = -fontSize * 0.18;
+  // Weniger Überlappung - Buchstaben haben normalen Abstand
+  const letterSpacing = -fontSize * 0.03;
   const wordSpacing = fontSize * 0.55;
-  const lineHeight = fontSize * 1.5;
+  const lineHeight = fontSize * 1.8;
   
   // Zeilen berechnen
   const lines: string[][] = [];
@@ -162,8 +163,18 @@ export async function renderText(
           const yOffset = (Math.random() - 0.5) * 2 * maxOffset;
           const scaleVar = 1 + (Math.random() - 0.5) * 2 * maxScaleVar;
           
-          // Y-Position anpassen: Kleinbuchstaben auf Basislinie
-          const baselineOffset = drawHeight * 0.85;
+          // Y-Position anpassen
+          let baselineOffset = drawHeight * 0.85;
+          
+          // Buchstaben mit Unterlänge (Keller) tiefer positionieren
+          // g, j, p, q, y haben 95px Gesamthöhe (60px x-height + 35px Keller)
+          // Der Keller-Teil muss unter die Basislinie ragen
+          const lowerChar = char.toLowerCase();
+          if ('gjpqy'.includes(lowerChar)) {
+            // Keller-Teil = 35px von 95px Gesamthöhe
+            // Skalierter Keller = drawHeight * (35/95)
+            baselineOffset += drawHeight * (35 / 95);
+          }
           
           ctx.save();
           ctx.translate(x + drawWidth / 2, y + yOffset);

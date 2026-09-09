@@ -7,7 +7,40 @@ interface DrawingCanvasProps {
   penSize: number;
 }
 
-const NORMALIZED_HEIGHT = 120;
+// Intelligente Buchstaben-Höhen für natürliches Aussehen
+const getNormalizedHeight = (char: string): number => {
+  const lower = char.toLowerCase();
+  
+  // Großbuchstaben: volle Höhe (120px)
+  if (char !== lower) return 120;
+  
+  // Kleinbuchstaben mit Oberlänge (fast so groß wie Großbuchstaben)
+  // b, d, f, h, k, l, t
+  if ('bdfhklt'.includes(lower)) return 115;
+  
+  // Kleinbuchstaben mit Unterlänge (Gesamthöhe inkl. Unterlänge)
+  // g, j, p, q, y
+  if ('gjpqy'.includes(lower)) return 140;
+  
+  // Kleinbuchstaben ohne Oberlänge (ca. 50% der Großbuchstaben)
+  // a, c, e, m, n, o, r, s, u, v, w, x, z
+  if ('acemnorsuvwxz'.includes(lower)) return 60;
+  
+  // 'i' mit Punkt
+  if (lower === 'i') return 85;
+  
+  // 'ß' 
+  if (lower === 'ß') return 60;
+  
+  // Zahlen
+  if (/[0-9]/.test(char)) return 100;
+  
+  // Satzzeichen
+  if ('.,!?-'.includes(char)) return 40;
+  
+  // Default
+  return 60;
+};
 
 export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -158,9 +191,10 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
     
-    const scale = NORMALIZED_HEIGHT / cropHeight;
+    const targetHeight = getNormalizedHeight(currentChar);
+    const scale = targetHeight / cropHeight;
     const normalizedWidth = Math.round(cropWidth * scale);
-    const normalizedHeight = NORMALIZED_HEIGHT;
+    const normalizedHeight = targetHeight;
     
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = cropWidth;

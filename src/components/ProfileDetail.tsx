@@ -257,7 +257,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
                       <img
                         src={variant.imageData}
                         alt={variant.char}
-                        className="h-10 w-auto"
+                        className="h-10 w-auto object-contain"
                       />
                       <button
                         onClick={() => {

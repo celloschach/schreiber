@@ -5,15 +5,24 @@ interface DrawingCanvasProps {
   currentChar: string;
   penColor: string;
   penSize: number;
+  guideText?: string; // Für Batch-Modus: ganzes Wort als Guide
 }
 
-// Standard-Höhe für alle Buchstaben (normalisiert)
-const NORMALIZED_HEIGHT = 120;
+interface Stroke {
+  points: { x: number; y: number }[];
+  color: string;
+  size: number;
+}
 
-export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }: DrawingCanvasProps) {
+const NORMALIZED_HEIGHT = 120;
+const TARGET_LINE_THICKNESS = 5; // Ziel-Linien-Dicke in Pixeln bei NORMALIZED_HEIGHT
+
+export default function DrawingCanvas({ onSave, currentChar, penColor, penSize, guideText }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasDrawn, setHasDrawn] = useState(false);
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const currentStroke = useRef<{ x: number; y: number }[]>([]);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
 
   const CANVAS_WIDTH = 200;
@@ -23,7 +32,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
-    // Hilfslinien (sehr hell)
+    // Hilfslinien
     ctx.strokeStyle = '#f0f0f0';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
@@ -40,26 +49,58 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     ctx.setLineDash([]);
     
-    // Guide-Zeichen (sehr blass)
+    // Guide-Zeichen oder Wort
+    const displayText = guideText || (currentChar === ' ' ? '' : currentChar);
     const isUpperCase = currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase();
-    const displayChar = currentChar === ' ' ? '' : currentChar;
     
     ctx.fillStyle = '#f5f5f5';
-    const fontSize = isUpperCase ? CANVAS_HEIGHT * 0.7 : CANVAS_HEIGHT * 0.65;
+    let fontSize;
+    if (guideText) {
+      fontSize = CANVAS_HEIGHT * 0.5; // Kleiner für ganzes Wort
+    } else {
+      fontSize = isUpperCase ? CANVAS_HEIGHT * 0.7 : CANVAS_HEIGHT * 0.65;
+    }
     ctx.font = `bold ${fontSize}px Georgia, serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(displayChar, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.45);
-  }, [currentChar]);
+    ctx.fillText(displayText, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.45);
+  }, [currentChar, guideText]);
 
-  useEffect(() => {
+  const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
+    
     drawGuide(ctx);
+    
+    // Alle Striche neu zeichnen
+    for (const stroke of strokes) {
+      if (stroke.points.length < 2) continue;
+      
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = stroke.size;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let i = 1; i < stroke.points.length; i++) {
+        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+      }
+      ctx.stroke();
+    }
+  }, [strokes, drawGuide]);
+
+  useEffect(() => {
+    drawGuide(canvasRef.current?.getContext('2d')!);
+    setStrokes([]);
     setHasDrawn(false);
     lastPos.current = null;
-  }, [currentChar, drawGuide]);
+  }, [currentChar, guideText, drawGuide]);
+
+  useEffect(() => {
+    redrawCanvas();
+  }, [strokes, redrawCanvas]);
 
   const getPos = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current!;
@@ -84,6 +125,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     setIsDrawing(true);
     setHasDrawn(true);
     const pos = getPos(e);
+    currentStroke.current = [pos];
     lastPos.current = pos;
   };
 
@@ -94,6 +136,8 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
     const pos = getPos(e);
+    
+    currentStroke.current.push(pos);
     
     ctx.strokeStyle = penColor;
     ctx.lineWidth = penSize;
@@ -109,15 +153,189 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
   };
 
   const stopDraw = () => {
+    if (currentStroke.current.length > 0) {
+      setStrokes(prev => [...prev, {
+        points: [...currentStroke.current],
+        color: penColor,
+        size: penSize
+      }]);
+    }
     setIsDrawing(false);
+    currentStroke.current = [];
     lastPos.current = null;
   };
 
+  const undo = () => {
+    if (strokes.length === 0) return;
+    setStrokes(prev => prev.slice(0, -1));
+    if (strokes.length === 1) {
+      setHasDrawn(false);
+      drawGuide(canvasRef.current?.getContext('2d')!);
+    }
+  };
+
+  // Keyboard-Shortcut: Ctrl+Z für Undo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [strokes]);
+
   const clear = () => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d')!;
-    drawGuide(ctx);
+    setStrokes([]);
     setHasDrawn(false);
+    drawGuide(canvasRef.current?.getContext('2d')!);
+  };
+
+  /**
+   * Misst die durchschnittliche Linien-Dicke
+   */
+  const measureLineThickness = (binary: Uint8Array, width: number, height: number): number => {
+    const slices = 15;
+    const thicknesses: number[] = [];
+    
+    for (let s = 0; s < slices; s++) {
+      const y = Math.round((s + 0.5) * height / slices);
+      if (y >= height) continue;
+      
+      let inLine = false;
+      let lineWidth = 0;
+      
+      for (let x = 0; x < width; x++) {
+        const isDark = binary[y * width + x] === 1;
+        if (isDark && !inLine) {
+          inLine = true;
+          lineWidth = 1;
+        } else if (isDark && inLine) {
+          lineWidth++;
+        } else if (!isDark && inLine) {
+          inLine = false;
+          if (lineWidth > 2) {
+            thicknesses.push(lineWidth);
+          }
+        }
+      }
+      if (inLine && lineWidth > 2) {
+        thicknesses.push(lineWidth);
+      }
+    }
+    
+    if (thicknesses.length === 0) return TARGET_LINE_THICKNESS;
+    
+    thicknesses.sort((a, b) => a - b);
+    return thicknesses[Math.floor(thicknesses.length / 2)];
+  };
+
+  /**
+   * Sanfte Linien-Dicke-Normalisierung
+   */
+  const normalizeLineThickness = (
+    imageData: ImageData,
+    width: number,
+    height: number,
+    targetThickness: number
+  ): ImageData => {
+    const binary = new Uint8Array(width * height);
+    const data = imageData.data;
+    
+    // Binärbild erstellen
+    for (let i = 0; i < binary.length; i++) {
+      const r = data[i * 4];
+      const g = data[i * 4 + 1];
+      const b = data[i * 4 + 2];
+      binary[i] = (r < 200 || g < 200 || b < 200) ? 1 : 0;
+    }
+    
+    const currentThickness = measureLineThickness(binary, width, height);
+    const diff = targetThickness - currentThickness;
+    
+    // Nur anpassen wenn Unterschied > 2px
+    if (Math.abs(diff) <= 2) return imageData;
+    
+    // Sanfte Anpassung: nur 1 Pixel
+    const adjustment = diff > 0 ? 1 : -1;
+    
+    const result = new ImageData(width, height);
+    const resultData = result.data;
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        const pixelIdx = idx * 4;
+        
+        if (binary[idx] === 1) {
+          // Dunkles Pixel
+          if (adjustment > 0) {
+            // Dilate: auch Nachbarn dunkel machen
+            resultData[pixelIdx] = data[pixelIdx];
+            resultData[pixelIdx + 1] = data[pixelIdx + 1];
+            resultData[pixelIdx + 2] = data[pixelIdx + 2];
+            resultData[pixelIdx + 3] = 255;
+            
+            // Nachbarn prüfen
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  const nIdx = (ny * width + nx) * 4;
+                  if (binary[ny * width + nx] === 0) {
+                    // Heller Nachbar → leicht dunkler machen
+                    resultData[nIdx] = Math.max(0, data[nIdx] - 30);
+                    resultData[nIdx + 1] = Math.max(0, data[nIdx + 1] - 30);
+                    resultData[nIdx + 2] = Math.max(0, data[nIdx + 2] - 30);
+                    resultData[nIdx + 3] = 255;
+                  }
+                }
+              }
+            }
+          } else {
+            // Erode: nur setzen wenn alle Nachbarn auch dunkel sind
+            let allDark = true;
+            for (let dy = -1; dy <= 1 && allDark; dy++) {
+              for (let dx = -1; dx <= 1 && allDark; dx++) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  if (binary[ny * width + nx] === 0) {
+                    allDark = false;
+                  }
+                } else {
+                  allDark = false;
+                }
+              }
+            }
+            
+            if (allDark) {
+              resultData[pixelIdx] = data[pixelIdx];
+              resultData[pixelIdx + 1] = data[pixelIdx + 1];
+              resultData[pixelIdx + 2] = data[pixelIdx + 2];
+              resultData[pixelIdx + 3] = 255;
+            } else {
+              // Rand-Pixel → heller machen
+              resultData[pixelIdx] = Math.min(255, data[pixelIdx] + 50);
+              resultData[pixelIdx + 1] = Math.min(255, data[pixelIdx + 1] + 50);
+              resultData[pixelIdx + 2] = Math.min(255, data[pixelIdx + 2] + 50);
+              resultData[pixelIdx + 3] = 255;
+            }
+          }
+        } else {
+          // Helles Pixel
+          resultData[pixelIdx] = data[pixelIdx];
+          resultData[pixelIdx + 1] = data[pixelIdx + 1];
+          resultData[pixelIdx + 2] = data[pixelIdx + 2];
+          resultData[pixelIdx + 3] = data[pixelIdx + 3];
+        }
+      }
+    }
+    
+    return result;
   };
 
   const save = useCallback(() => {
@@ -162,24 +380,20 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
     
-    // === NORMALISIERUNG AUF EINHEITLICHE HÖHE ===
-    // Alle Buchstaben werden auf die gleiche Höhe skaliert
-    // Dadurch haben sie beim Rendern immer die gleiche Linien-Dicke
+    // Auf normalisierte Höhe skalieren
     const scale = NORMALIZED_HEIGHT / cropHeight;
     const normalizedWidth = Math.round(cropWidth * scale);
     const normalizedHeight = NORMALIZED_HEIGHT;
     
-    // Erst das Bild ausschneiden
+    // Ausschneiden
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = cropWidth;
     tempCanvas.height = cropHeight;
     const tempCtx = tempCanvas.getContext('2d')!;
     
-    // Weißer Hintergrund
     tempCtx.fillStyle = '#ffffff';
     tempCtx.fillRect(0, 0, cropWidth, cropHeight);
     
-    // Nur gezeichnete Pixel übertragen
     const tempImgData = tempCtx.getImageData(0, 0, cropWidth, cropHeight);
     const tempData = tempImgData.data;
     
@@ -203,25 +417,25 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     tempCtx.putImageData(tempImgData, 0, 0);
     
-    // Jetzt auf normalisierte Größe skalieren
+    // Skalieren
     const normCanvas = document.createElement('canvas');
     normCanvas.width = normalizedWidth;
     normCanvas.height = normalizedHeight;
     const normCtx = normCanvas.getContext('2d')!;
     
-    // Weißen Hintergrund
     normCtx.fillStyle = '#ffffff';
     normCtx.fillRect(0, 0, normalizedWidth, normalizedHeight);
     
-    // Hochwertige Skalierung
     normCtx.imageSmoothingEnabled = true;
     normCtx.imageSmoothingQuality = 'high';
     normCtx.drawImage(tempCanvas, 0, 0, normalizedWidth, normalizedHeight);
     
-    // Als JPEG speichern
-    const imageData = normCanvas.toDataURL('image/jpeg', 0.85);
+    // === SANFTE LINIEN-DICKE-NORMALISIERUNG ===
+    const normImgData = normCtx.getImageData(0, 0, normalizedWidth, normalizedHeight);
+    const normalizedImgData = normalizeLineThickness(normImgData, normalizedWidth, normalizedHeight, TARGET_LINE_THICKNESS);
+    normCtx.putImageData(normalizedImgData, 0, 0);
     
-    // Die gespeicherten Dimensionen sind die normalisierten
+    const imageData = normCanvas.toDataURL('image/jpeg', 0.85);
     onSave(imageData, normalizedWidth, normalizedHeight);
   }, [hasDrawn, onSave]);
 
@@ -245,6 +459,15 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
       </div>
       
       <div className="flex gap-2 mt-3">
+        <button
+          onClick={undo}
+          disabled={strokes.length === 0}
+          className="px-4 py-2 bg-blue-100 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-200 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Letzten Strich rückgängig (Ctrl+Z)"
+        >
+          <i className="fas fa-undo mr-1"></i>
+          Undo
+        </button>
         <button
           onClick={clear}
           className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-200 transition-all"

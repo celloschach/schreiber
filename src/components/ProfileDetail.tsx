@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { HandwritingProfile, DrawnChar } from '../types';
 import DrawingCanvas from './DrawingCanvas';
 import { renderText, getAlphabetCoverage } from '../utils/textRenderer';
@@ -11,13 +11,17 @@ interface Props {
 }
 
 type CharGroup = 'lower' | 'upper' | 'numbers' | 'punctuation';
+type DrawMode = 'single' | 'batch';
 
 export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: Props) {
   const [tab, setTab] = useState<'draw' | 'convert'>('draw');
+  const [drawMode, setDrawMode] = useState<DrawMode>('single');
   const [currentChar, setCurrentChar] = useState('a');
   const [charGroup, setCharGroup] = useState<CharGroup>('lower');
   const [penSize, setPenSize] = useState(4);
   const [text, setText] = useState('');
+  const [batchWord, setBatchWord] = useState('');
+  const [batchCharIndex, setBatchCharIndex] = useState(0);
   const [renderedImage, setRenderedImage] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -33,31 +37,81 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
 
   const currentGroupChars = charGroups[charGroup];
 
+  // Batch-Modus: Aktuellen Buchstaben im Wort bestimmen
+  useEffect(() => {
+    if (drawMode === 'batch' && batchWord.length > 0) {
+      if (batchCharIndex >= batchWord.length) {
+        setBatchCharIndex(0);
+      }
+    }
+  }, [drawMode, batchWord, batchCharIndex]);
+
   const handleCharDrawn = (imageData: string, width: number, height: number) => {
-    const newChar: DrawnChar = {
-      id: Date.now().toString(),
-      char: currentChar,
-      imageData,
-      width,
-      height,
-      createdAt: Date.now(),
-    };
+    if (drawMode === 'single') {
+      // Einzelner Buchstabe
+      const newChar: DrawnChar = {
+        id: Date.now().toString(),
+        char: currentChar,
+        imageData,
+        width,
+        height,
+        createdAt: Date.now(),
+      };
 
-    const existing = profile.chars[currentChar] || [];
-    const updatedChars = {
-      ...profile.chars,
-      [currentChar]: [...existing, newChar],
-    };
+      const existing = profile.chars[currentChar] || [];
+      const updatedChars = {
+        ...profile.chars,
+        [currentChar]: [...existing, newChar],
+      };
 
-    const updated: HandwritingProfile = {
-      ...profile,
-      chars: updatedChars,
-      totalDrawn: profile.totalDrawn + 1,
-    };
+      const updated: HandwritingProfile = {
+        ...profile,
+        chars: updatedChars,
+        totalDrawn: profile.totalDrawn + 1,
+      };
 
-    onUpdate(updated);
-    setSuccess(`"${currentChar}" gespeichert! (${existing.length + 1} Variante${existing.length > 0 ? 'n' : ''})`);
-    setTimeout(() => setSuccess(null), 2000);
+      onUpdate(updated);
+      setSuccess(`"${currentChar}" gespeichert! (${existing.length + 1} Variante${existing.length > 0 ? 'n' : ''})`);
+      setTimeout(() => setSuccess(null), 2000);
+    } else {
+      // Batch-Modus: Wort-buchstabe
+      if (batchWord.length === 0) return;
+      
+      const char = batchWord[batchCharIndex];
+      const newChar: DrawnChar = {
+        id: Date.now().toString(),
+        char: char,
+        imageData,
+        width,
+        height,
+        createdAt: Date.now(),
+      };
+
+      const existing = profile.chars[char] || [];
+      const updatedChars = {
+        ...profile.chars,
+        [char]: [...existing, newChar],
+      };
+
+      const updated: HandwritingProfile = {
+        ...profile,
+        chars: updatedChars,
+        totalDrawn: profile.totalDrawn + 1,
+      };
+
+      onUpdate(updated);
+      
+      // Zum nächsten Buchstaben
+      const nextIndex = batchCharIndex + 1;
+      if (nextIndex >= batchWord.length) {
+        setSuccess(`Wort "${batchWord}" komplett gelernt! 🎉`);
+        setBatchCharIndex(0);
+      } else {
+        setBatchCharIndex(nextIndex);
+        setSuccess(`"${char}" gespeichert! Weiter zu "${batchWord[nextIndex]}"`);
+      }
+      setTimeout(() => setSuccess(null), 2000);
+    }
   };
 
   const handleRender = async () => {
@@ -85,12 +139,14 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
 
   const getGroupLabel = (g: CharGroup) => {
     switch (g) {
-      case 'lower': return 'Kleinbuchstaben';
-      case 'upper': return 'Großbuchstaben';
+      case 'lower': return 'Klein';
+      case 'upper': return 'Groß';
       case 'numbers': return 'Zahlen';
-      case 'punctuation': return 'Satzzeichen';
+      case 'punctuation': return 'Zeichen';
     }
   };
+
+  const currentBatchChar = drawMode === 'batch' && batchWord.length > 0 ? batchWord[batchCharIndex] : '';
 
   return (
     <div className="w-full max-w-5xl mx-auto">
@@ -105,7 +161,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
           </button>
           <div className="flex-1">
             <h2 className="text-xl font-bold text-gray-800">{profile.name}</h2>
-            <p className="text-xs text-gray-500">{profile.totalDrawn} Buchstaben gezeichnet • {Math.round(coverage.coverage * 100)}% Abdeckung</p>
+            <p className="text-xs text-gray-500">{profile.totalDrawn} Buchstaben • {Math.round(coverage.coverage * 100)}% Abdeckung</p>
           </div>
         </div>
 
@@ -132,7 +188,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
               tab === 'draw' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
             }`}
           >
-            <i className="fas fa-pen mr-2"></i>Buchstaben zeichnen
+            <i className="fas fa-pen mr-2"></i>Zeichnen
           </button>
           <button
             onClick={() => setTab('convert')}
@@ -140,7 +196,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
               tab === 'convert' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
             }`}
           >
-            <i className="fas fa-file-alt mr-2"></i>Text umwandeln
+            <i className="fas fa-file-alt mr-2"></i>Konvertieren
           </button>
         </div>
       </div>
@@ -157,20 +213,99 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Zeichen-Bereich */}
           <div className="lg:col-span-2 bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 p-5">
-            <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-              Zeichne den Buchstaben:
-              <span className="text-4xl text-purple-600 font-serif">{currentChar}</span>
-              {currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase() && (
-                <span className="text-xs text-gray-400 font-normal">(Großbuchstabe)</span>
-              )}
-            </h3>
-            
-            <DrawingCanvas
-              onSave={handleCharDrawn}
-              currentChar={currentChar}
-              penColor={profile.color}
-              penSize={penSize}
-            />
+            {/* Modus-Umschalter */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setDrawMode('single')}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  drawMode === 'single' ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                <i className="fas fa-font mr-1"></i> Einzelner Buchstabe
+              </button>
+              <button
+                onClick={() => setDrawMode('batch')}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                  drawMode === 'batch' ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                <i className="fas fa-spell-check mr-1"></i> Ganzes Wort
+              </button>
+            </div>
+
+            {drawMode === 'single' ? (
+              <>
+                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                  Zeichne den Buchstaben:
+                  <span className="text-4xl text-purple-600 font-serif">{currentChar}</span>
+                </h3>
+                
+                <DrawingCanvas
+                  onSave={handleCharDrawn}
+                  currentChar={currentChar}
+                  penColor={profile.color}
+                  penSize={penSize}
+                />
+              </>
+            ) : (
+              <>
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Wort eingeben das du lernen willst:
+                  </label>
+                  <input
+                    type="text"
+                    value={batchWord}
+                    onChange={(e) => {
+                      setBatchWord(e.target.value);
+                      setBatchCharIndex(0);
+                    }}
+                    placeholder="z.B. Hallo, Welt"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                  />
+                </div>
+
+                {batchWord.length > 0 && (
+                  <div className="mb-3 p-3 bg-purple-50 rounded-xl">
+                    <p className="text-sm text-gray-600 mb-2">Schreibe das Wort Buchstabe für Buchstabe:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {batchWord.split('').map((char, idx) => (
+                        <span
+                          key={idx}
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-lg font-bold transition-all ${
+                            idx === batchCharIndex
+                              ? 'bg-purple-500 text-white scale-110 shadow-lg'
+                              : idx < batchCharIndex
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-400'
+                          }`}
+                        >
+                          {char === ' ' ? '⎵' : char}
+                          {idx < batchCharIndex && <i className="fas fa-check text-xs ml-0.5"></i>}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Aktuell: <span className="font-bold text-purple-600">{currentBatchChar}</span>
+                      {' '}({batchCharIndex + 1} von {batchWord.length})
+                    </p>
+                  </div>
+                )}
+
+                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                  Zeichne:
+                  <span className="text-4xl text-purple-600 font-serif">{currentBatchChar || '?'}</span>
+                </h3>
+                
+                <DrawingCanvas
+                  onSave={handleCharDrawn}
+                  currentChar={currentBatchChar || 'a'}
+                  penColor={profile.color}
+                  penSize={penSize}
+                  guideText={batchWord}
+                />
+              </>
+            )}
 
             {/* Stift-Dicke */}
             <div className="mt-4 flex items-center gap-3">
@@ -187,114 +322,114 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
             </div>
           </div>
 
-          {/* Buchstaben-Auswahl */}
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 p-5">
-            <h3 className="font-bold text-gray-800 mb-3">Buchstabe wählen</h3>
-            
-            {/* Gruppen-Tabs */}
-            <div className="flex gap-1 mb-3 flex-wrap">
-              {(Object.keys(charGroups) as CharGroup[]).map((g) => (
-                <button
-                  key={g}
-                  onClick={() => {
-                    setCharGroup(g);
-                    setCurrentChar(charGroups[g][0]);
-                  }}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
-                    charGroup === g ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {getGroupLabel(g).slice(0, 5)}.
-                </button>
-              ))}
-            </div>
-
-            {/* Zeichen-Grid */}
-            <div className={`grid gap-1.5 ${
-              charGroup === 'lower' || charGroup === 'upper' ? 'grid-cols-7' :
-              charGroup === 'numbers' ? 'grid-cols-5' : 'grid-cols-5'
-            }`}>
-              {currentGroupChars.map((char) => {
-                const variants = profile.chars[char];
-                const count = variants ? variants.length : 0;
-                const isSelected = char === currentChar;
-                
-                return (
+          {/* Buchstaben-Auswahl (nur im Single-Modus) */}
+          {drawMode === 'single' && (
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">Buchstabe wählen</h3>
+              
+              {/* Gruppen-Tabs */}
+              <div className="flex gap-1 mb-3 flex-wrap">
+                {(Object.keys(charGroups) as CharGroup[]).map((g) => (
                   <button
-                    key={char}
-                    onClick={() => setCurrentChar(char)}
-                    className={`aspect-square rounded-lg flex flex-col items-center justify-center text-sm font-bold transition-all relative ${
-                      isSelected
-                        ? 'bg-purple-500 text-white shadow-lg scale-105'
-                        : count > 0
-                        ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
-                        : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                    key={g}
+                    onClick={() => {
+                      setCharGroup(g);
+                      setCurrentChar(charGroups[g][0]);
+                    }}
+                    className={`px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      charGroup === g ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
                   >
-                    {char === ' ' ? '⎵' : char}
-                    {count > 0 && !isSelected && (
-                      <span className={`absolute -top-1 -right-1 min-w-[16px] h-4 px-1 text-white text-[9px] rounded-full flex items-center justify-center font-bold ${
-                        count >= 3 ? 'bg-green-500' : count >= 2 ? 'bg-yellow-500' : 'bg-gray-400'
-                      }`}>
-                        {count}
-                      </span>
-                    )}
+                    {getGroupLabel(g)}
                   </button>
-                );
-              })}
-            </div>
-
-            {/* Vorschau der gezeichneten Varianten */}
-            {profile.chars[currentChar] && profile.chars[currentChar].length > 0 && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <h4 className="text-sm font-medium text-gray-600 mb-2">
-                  Deine Varianten ({profile.chars[currentChar].length}):
-                  <span className="text-xs text-gray-400 ml-2">(Klicke auf × um zu löschen)</span>
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {profile.chars[currentChar].map((variant) => (
-                    <div key={variant.id} className="relative group bg-gray-50 rounded-lg p-1 border border-gray-200">
-                      <img
-                        src={variant.imageData}
-                        alt={variant.char}
-                        className="h-10 w-auto"
-                      />
-                      <button
-                        onClick={() => {
-                          const updatedChars = {
-                            ...profile.chars,
-                            [currentChar]: profile.chars[currentChar].filter(v => v.id !== variant.id)
-                          };
-                          // Wenn keine Varianten mehr übrig, Key entfernen
-                          if (updatedChars[currentChar].length === 0) {
-                            delete updatedChars[currentChar];
-                          }
-                          const updated: HandwritingProfile = {
-                            ...profile,
-                            chars: updatedChars,
-                            totalDrawn: profile.totalDrawn - 1,
-                          };
-                          onUpdate(updated);
-                          setSuccess(`Variante von "${currentChar}" gelöscht`);
-                          setTimeout(() => setSuccess(null), 2000);
-                        }}
-                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
-                        title="Variante löschen"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                {profile.chars[currentChar].length >= 3 && (
-                  <p className="text-xs text-green-600 mt-2">
-                    <i className="fas fa-star mr-1"></i>
-                    Super! Mehrere Varianten = natürlicheres Ergebnis
-                  </p>
-                )}
+                ))}
               </div>
-            )}
-          </div>
+
+              {/* Zeichen-Grid */}
+              <div className={`grid gap-1.5 ${
+                charGroup === 'lower' || charGroup === 'upper' ? 'grid-cols-7' : 'grid-cols-5'
+              }`}>
+                {currentGroupChars.map((char) => {
+                  const variants = profile.chars[char];
+                  const count = variants ? variants.length : 0;
+                  const isSelected = char === currentChar;
+                  
+                  return (
+                    <button
+                      key={char}
+                      onClick={() => setCurrentChar(char)}
+                      className={`aspect-square rounded-lg flex flex-col items-center justify-center text-sm font-bold transition-all relative ${
+                        isSelected
+                          ? 'bg-purple-500 text-white shadow-lg scale-105'
+                          : count > 0
+                          ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
+                          : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                      }`}
+                    >
+                      {char === ' ' ? '⎵' : char}
+                      {count > 0 && !isSelected && (
+                        <span className={`absolute -top-1 -right-1 min-w-[16px] h-4 px-1 text-white text-[9px] rounded-full flex items-center justify-center font-bold ${
+                          count >= 3 ? 'bg-green-500' : count >= 2 ? 'bg-yellow-500' : 'bg-gray-400'
+                        }`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Vorschau der gezeichneten Varianten */}
+              {profile.chars[currentChar] && profile.chars[currentChar].length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <h4 className="text-sm font-medium text-gray-600 mb-2">
+                    Deine Varianten ({profile.chars[currentChar].length}):
+                    <span className="text-xs text-gray-400 ml-2">(Hover = Löschen)</span>
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {profile.chars[currentChar].map((variant) => (
+                      <div key={variant.id} className="relative group bg-gray-50 rounded-lg p-1 border border-gray-200">
+                        <img
+                          src={variant.imageData}
+                          alt={variant.char}
+                          className="h-10 w-auto"
+                        />
+                        <button
+                          onClick={() => {
+                            const updatedChars = {
+                              ...profile.chars,
+                              [currentChar]: profile.chars[currentChar].filter(v => v.id !== variant.id)
+                            };
+                            if (updatedChars[currentChar].length === 0) {
+                              delete updatedChars[currentChar];
+                            }
+                            const updated: HandwritingProfile = {
+                              ...profile,
+                              chars: updatedChars,
+                              totalDrawn: profile.totalDrawn - 1,
+                            };
+                            onUpdate(updated);
+                            setSuccess(`Variante von "${currentChar}" gelöscht`);
+                            setTimeout(() => setSuccess(null), 2000);
+                          }}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
+                          title="Variante löschen"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {profile.chars[currentChar].length >= 3 && (
+                    <p className="text-xs text-green-600 mt-2">
+                      <i className="fas fa-star mr-1"></i>
+                      Super! Mehrere Varianten = natürlicheres Ergebnis
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-5">
@@ -304,7 +439,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
             <textarea
               value={text}
               onChange={(e) => { setText(e.target.value); setRenderedImage(null); }}
-              placeholder="Gib hier deinen Text ein...&#10;&#10;Tipp: Groß- und Kleinbuchstaben werden unterschieden!"
+              placeholder="Gib hier deinen Text ein...&#10;&#10;Tipp: Groß-/Kleinschreibung wird automatisch erkannt!"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none resize-none h-32"
             />
             <div className="flex gap-3 mt-3">
@@ -331,7 +466,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
             {profile.totalDrawn === 0 && (
               <p className="text-sm text-amber-600 mt-2">
                 <i className="fas fa-exclamation-triangle mr-1"></i>
-                Zeichne erst ein paar Buchstaben im "Zeichnen"-Tab!
+                Zeichne erst ein paar Buchstaben!
               </p>
             )}
           </div>

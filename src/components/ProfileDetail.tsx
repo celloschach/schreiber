@@ -249,15 +249,40 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <h4 className="text-sm font-medium text-gray-600 mb-2">
                   Deine Varianten ({profile.chars[currentChar].length}):
+                  <span className="text-xs text-gray-400 ml-2">(Klicke auf × um zu löschen)</span>
                 </h4>
                 <div className="flex flex-wrap gap-2">
                   {profile.chars[currentChar].map((variant) => (
-                    <div key={variant.id} className="bg-gray-50 rounded-lg p-1 border border-gray-200">
+                    <div key={variant.id} className="relative group bg-gray-50 rounded-lg p-1 border border-gray-200">
                       <img
                         src={variant.imageData}
                         alt={variant.char}
                         className="h-10 w-auto"
                       />
+                      <button
+                        onClick={() => {
+                          const updatedChars = {
+                            ...profile.chars,
+                            [currentChar]: profile.chars[currentChar].filter(v => v.id !== variant.id)
+                          };
+                          // Wenn keine Varianten mehr übrig, Key entfernen
+                          if (updatedChars[currentChar].length === 0) {
+                            delete updatedChars[currentChar];
+                          }
+                          const updated: HandwritingProfile = {
+                            ...profile,
+                            chars: updatedChars,
+                            totalDrawn: profile.totalDrawn - 1,
+                          };
+                          onUpdate(updated);
+                          setSuccess(`Variante von "${currentChar}" gelöscht`);
+                          setTimeout(() => setSuccess(null), 2000);
+                        }}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
+                        title="Variante löschen"
+                      >
+                        ×
+                      </button>
                     </div>
                   ))}
                 </div>

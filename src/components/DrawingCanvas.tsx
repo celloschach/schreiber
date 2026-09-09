@@ -7,6 +7,9 @@ interface DrawingCanvasProps {
   penSize: number;
 }
 
+// Standard-Höhe für alle Buchstaben (normalisiert)
+const NORMALIZED_HEIGHT = 120;
+
 export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -17,22 +20,19 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
   const CANVAS_HEIGHT = 240;
 
   const drawGuide = useCallback((ctx: CanvasRenderingContext2D) => {
-    // Weißen Hintergrund
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
-    // Hilfslinien (sehr hell, werden beim Speichern herausgefiltert)
+    // Hilfslinien (sehr hell)
     ctx.strokeStyle = '#f0f0f0';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     
-    // Mittellinie
     ctx.beginPath();
     ctx.moveTo(0, CANVAS_HEIGHT / 2);
     ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT / 2);
     ctx.stroke();
     
-    // Grundlinie
     ctx.beginPath();
     ctx.moveTo(0, CANVAS_HEIGHT * 0.75);
     ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT * 0.75);
@@ -40,11 +40,11 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     ctx.setLineDash([]);
     
-    // Zeichen im Hintergrund (sehr blass — wird beim Speichern herausgefiltert)
+    // Guide-Zeichen (sehr blass)
     const isUpperCase = currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase();
     const displayChar = currentChar === ' ' ? '' : currentChar;
     
-    ctx.fillStyle = '#f5f5f5'; // Sehr hell — unter dem Schwellenwert beim Speichern
+    ctx.fillStyle = '#f5f5f5';
     const fontSize = isUpperCase ? CANVAS_HEIGHT * 0.7 : CANVAS_HEIGHT * 0.65;
     ctx.font = `bold ${fontSize}px Georgia, serif`;
     ctx.textAlign = 'center';
@@ -52,7 +52,6 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     ctx.fillText(displayChar, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.45);
   }, [currentChar]);
 
-  // Canvas initialisieren
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -129,12 +128,9 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const imgData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const data = imgData.data;
     
-    // Schwellenwert: Alles was heller als dieser Wert ist, gilt als "Hintergrund"
-    // Hilfslinien sind #f0f0f0 (240), Guide-Zeichen ist #f5f5f5 (245)
-    // Gezeichnete Striche sind deutlich dunkler
     const BG_THRESHOLD = 220;
     
-    // Bounding Box der gezeichneten Striche finden
+    // Bounding Box finden
     let minX = CANVAS_WIDTH, minY = CANVAS_HEIGHT, maxX = 0, maxY = 0;
     let found = false;
     
@@ -145,7 +141,6 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
         const g = data[idx + 1];
         const b = data[idx + 2];
         
-        // Nur Pixel die deutlich dunkler als der Hintergrund sind
         if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
@@ -158,7 +153,6 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     if (!found) return;
     
-    // Padding
     const padding = 4;
     minX = Math.max(0, minX - padding);
     minY = Math.max(0, minY - padding);
@@ -168,19 +162,26 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
     
-    // Neues Canvas: Sauberer weißer Hintergrund + nur die Striche
-    const cropCanvas = document.createElement('canvas');
-    cropCanvas.width = cropWidth;
-    cropCanvas.height = cropHeight;
-    const cropCtx = cropCanvas.getContext('2d')!;
+    // === NORMALISIERUNG AUF EINHEITLICHE HÖHE ===
+    // Alle Buchstaben werden auf die gleiche Höhe skaliert
+    // Dadurch haben sie beim Rendern immer die gleiche Linien-Dicke
+    const scale = NORMALIZED_HEIGHT / cropHeight;
+    const normalizedWidth = Math.round(cropWidth * scale);
+    const normalizedHeight = NORMALIZED_HEIGHT;
     
-    // Komplett weißer Hintergrund
-    cropCtx.fillStyle = '#ffffff';
-    cropCtx.fillRect(0, 0, cropWidth, cropHeight);
+    // Erst das Bild ausschneiden
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = cropWidth;
+    tempCanvas.height = cropHeight;
+    const tempCtx = tempCanvas.getContext('2d')!;
     
-    // Nur die gezeichneten Pixel übertragen (alles was dunkel genug ist)
-    const cropImgData = cropCtx.getImageData(0, 0, cropWidth, cropHeight);
-    const cropData = cropImgData.data;
+    // Weißer Hintergrund
+    tempCtx.fillStyle = '#ffffff';
+    tempCtx.fillRect(0, 0, cropWidth, cropHeight);
+    
+    // Nur gezeichnete Pixel übertragen
+    const tempImgData = tempCtx.getImageData(0, 0, cropWidth, cropHeight);
+    const tempData = tempImgData.data;
     
     for (let y = 0; y < cropHeight; y++) {
       for (let x = 0; x < cropWidth; x++) {
@@ -192,21 +193,36 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
         const b = data[srcIdx + 2];
         
         if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
-          // Das ist ein gezeichneter Strich — übertragen
-          cropData[dstIdx] = r;
-          cropData[dstIdx + 1] = g;
-          cropData[dstIdx + 2] = b;
-          cropData[dstIdx + 3] = 255;
+          tempData[dstIdx] = r;
+          tempData[dstIdx + 1] = g;
+          tempData[dstIdx + 2] = b;
+          tempData[dstIdx + 3] = 255;
         }
-        // Sonst: weiß lassen (bereits gesetzt durch fillRect)
       }
     }
     
-    cropCtx.putImageData(cropImgData, 0, 0);
+    tempCtx.putImageData(tempImgData, 0, 0);
     
-    // Als JPEG speichern (hohe Qualität für saubere Kanten)
-    const imageData = cropCanvas.toDataURL('image/jpeg', 0.85);
-    onSave(imageData, cropWidth, cropHeight);
+    // Jetzt auf normalisierte Größe skalieren
+    const normCanvas = document.createElement('canvas');
+    normCanvas.width = normalizedWidth;
+    normCanvas.height = normalizedHeight;
+    const normCtx = normCanvas.getContext('2d')!;
+    
+    // Weißen Hintergrund
+    normCtx.fillStyle = '#ffffff';
+    normCtx.fillRect(0, 0, normalizedWidth, normalizedHeight);
+    
+    // Hochwertige Skalierung
+    normCtx.imageSmoothingEnabled = true;
+    normCtx.imageSmoothingQuality = 'high';
+    normCtx.drawImage(tempCanvas, 0, 0, normalizedWidth, normalizedHeight);
+    
+    // Als JPEG speichern
+    const imageData = normCanvas.toDataURL('image/jpeg', 0.85);
+    
+    // Die gespeicherten Dimensionen sind die normalisierten
+    onSave(imageData, normalizedWidth, normalizedHeight);
   }, [hasDrawn, onSave]);
 
   return (

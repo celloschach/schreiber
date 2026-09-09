@@ -91,7 +91,10 @@ export async function renderText(
     } else {
       const metrics = charMetrics.get(char);
       if (metrics) {
-        const scale = fontSize / metrics.height;
+        // Relative Größe basierend auf gespeicherter Höhe
+        const relativeSize = metrics.height / 120;
+        const drawHeight = fontSize * relativeSize;
+        const scale = drawHeight / metrics.height;
         charWidth = metrics.width * scale + letterSpacing;
       } else {
         charWidth = fontSize * 0.4 + letterSpacing;
@@ -136,9 +139,13 @@ export async function renderText(
       const metrics = charMetrics.get(char);
       
       if (metrics) {
-        const scale = fontSize / metrics.height;
+        // Relative Größe basierend auf gespeicherter Höhe
+        // Großbuchstaben (120px) = fontSize
+        // Kleinbuchstaben (60px) = fontSize * 0.5
+        const relativeSize = metrics.height / 120; // Normalisiert auf 120px als Maximum
+        const drawHeight = fontSize * relativeSize;
+        const scale = drawHeight / metrics.height;
         const drawWidth = metrics.width * scale;
-        const drawHeight = fontSize;
         
         const variantCount = metrics.variants;
         const variationFactor = Math.min(variantCount / 5, 1);
@@ -155,11 +162,14 @@ export async function renderText(
           const yOffset = (Math.random() - 0.5) * 2 * maxOffset;
           const scaleVar = 1 + (Math.random() - 0.5) * 2 * maxScaleVar;
           
+          // Y-Position anpassen: Kleinbuchstaben auf Basislinie
+          const baselineOffset = drawHeight * 0.85;
+          
           ctx.save();
           ctx.translate(x + drawWidth / 2, y + yOffset);
           ctx.rotate(rotation);
           ctx.scale(scaleVar, scaleVar);
-          ctx.drawImage(img, -drawWidth / 2, -drawHeight * 0.85, drawWidth, drawHeight);
+          ctx.drawImage(img, -drawWidth / 2, -baselineOffset, drawWidth, drawHeight);
           ctx.restore();
         }
         

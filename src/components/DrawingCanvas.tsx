@@ -16,12 +16,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
   const CANVAS_WIDTH = 200;
   const CANVAS_HEIGHT = 240;
 
-  // Canvas initialisieren
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
-    
+  const drawGuide = useCallback((ctx: CanvasRenderingContext2D) => {
     // Weißen Hintergrund
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -45,16 +40,27 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     ctx.setLineDash([]);
     
-    // Zeichen im Hintergrund (blass)
-    ctx.fillStyle = '#f3f4f6';
-    ctx.font = `bold ${CANVAS_HEIGHT * 0.65}px serif`;
+    // Zeichen im Hintergrund (blass) - Groß oder Klein
+    const isUpperCase = currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase();
+    const displayChar = currentChar === ' ' ? '' : currentChar;
+    
+    ctx.fillStyle = '#f0f0f0';
+    const fontSize = isUpperCase ? CANVAS_HEIGHT * 0.7 : CANVAS_HEIGHT * 0.65;
+    ctx.font = `bold ${fontSize}px Georgia, serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(currentChar, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.45);
-    
+    ctx.fillText(displayChar, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.45);
+  }, [currentChar]);
+
+  // Canvas initialisieren
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    drawGuide(ctx);
     setHasDrawn(false);
     lastPos.current = null;
-  }, [currentChar]);
+  }, [currentChar, drawGuide]);
 
   const getPos = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current!;
@@ -111,31 +117,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
   const clear = () => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
-    // Hilfslinien
-    ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(0, CANVAS_HEIGHT / 2);
-    ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT / 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, CANVAS_HEIGHT * 0.75);
-    ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT * 0.75);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    
-    // Zeichen
-    ctx.fillStyle = '#f3f4f6';
-    ctx.font = `bold ${CANVAS_HEIGHT * 0.65}px serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(currentChar, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.45);
-    
+    drawGuide(ctx);
     setHasDrawn(false);
   };
 
@@ -143,13 +125,17 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     if (!hasDrawn) return;
     
     const canvas = canvasRef.current!;
-    
-    // Bounding Box finden (nur den gezeichneten Bereich ausschneiden)
     const ctx = canvas.getContext('2d')!;
     const imgData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
+    // Bounding Box finden - suche nach nicht-weißen Pixeln
+    // Hintergrund ist #ffffff (255,255,255), Hilfslinien sind #e5e7eb (229,231,235)
+    // Das Guide-Zeichen ist #f0f0f0 (240,240,240)
+    // Wir suchen nach Pixeln die deutlich dunkler sind
     let minX = CANVAS_WIDTH, minY = CANVAS_HEIGHT, maxX = 0, maxY = 0;
     let found = false;
+    
+    const threshold = 200; // Alles unter diesem Wert gilt als "gezeichnet"
     
     for (let y = 0; y < CANVAS_HEIGHT; y++) {
       for (let x = 0; x < CANVAS_WIDTH; x++) {
@@ -157,17 +143,14 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
         const r = imgData.data[idx];
         const g = imgData.data[idx + 1];
         const b = imgData.data[idx + 2];
-        // Prüfe ob Pixel dunkler als Hintergrund (nicht weiß/grau)
-        if (r < 200 || g < 200 || b < 200) {
-          // Prüfe ob es die gezeichnete Farbe ist (nicht die Hilfslinien/Hintergrund-Zeichen)
-          const brightness = (r + g + b) / 3;
-          if (brightness < 180) {
-            minX = Math.min(minX, x);
-            minY = Math.min(minY, y);
-            maxX = Math.max(maxX, x);
-            maxY = Math.max(maxY, y);
-            found = true;
-          }
+        
+        // Prüfe ob Pixel dunkler als der Hintergrund/die Hilfslinien
+        if (r < threshold || g < threshold || b < threshold) {
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+          found = true;
         }
       }
     }
@@ -175,7 +158,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     if (!found) return;
     
     // Padding hinzufügen
-    const padding = 8;
+    const padding = 6;
     minX = Math.max(0, minX - padding);
     minY = Math.max(0, minY - padding);
     maxX = Math.min(CANVAS_WIDTH - 1, maxX + padding);
@@ -190,12 +173,15 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     cropCanvas.height = cropHeight;
     const cropCtx = cropCanvas.getContext('2d')!;
     
+    // Weißen Hintergrund
     cropCtx.fillStyle = '#ffffff';
     cropCtx.fillRect(0, 0, cropWidth, cropHeight);
+    
+    // Gezeichneten Bereich kopieren
     cropCtx.drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
     
     // Als kleines JPEG speichern
-    const imageData = cropCanvas.toDataURL('image/jpeg', 0.75);
+    const imageData = cropCanvas.toDataURL('image/jpeg', 0.8);
     onSave(imageData, cropWidth, cropHeight);
   }, [hasDrawn, onSave]);
 

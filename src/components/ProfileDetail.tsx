@@ -10,9 +10,12 @@ interface Props {
   onConvert: (text: string, image: string, profile: HandwritingProfile) => void;
 }
 
+type CharGroup = 'lower' | 'upper' | 'numbers' | 'punctuation';
+
 export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: Props) {
   const [tab, setTab] = useState<'draw' | 'convert'>('draw');
   const [currentChar, setCurrentChar] = useState('a');
+  const [charGroup, setCharGroup] = useState<CharGroup>('lower');
   const [penSize, setPenSize] = useState(4);
   const [text, setText] = useState('');
   const [renderedImage, setRenderedImage] = useState<string | null>(null);
@@ -20,7 +23,15 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
   const [success, setSuccess] = useState<string | null>(null);
 
   const coverage = getAlphabetCoverage(profile.chars);
-  const charList = 'abcdefghijklmnopqrstuvwxyzäöüß0123456789,.!?- '.split('');
+
+  const charGroups: Record<CharGroup, string[]> = {
+    lower: 'abcdefghijklmnopqrstuvwxyzäöüß'.split(''),
+    upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ'.split(''),
+    numbers: '0123456789'.split(''),
+    punctuation: '.,!?- '.split(''),
+  };
+
+  const currentGroupChars = charGroups[charGroup];
 
   const handleCharDrawn = (imageData: string, width: number, height: number) => {
     const newChar: DrawnChar = {
@@ -45,7 +56,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
     };
 
     onUpdate(updated);
-    setSuccess(`"${currentChar}" gespeichert! (${existing.length + 1} Varianten)`);
+    setSuccess(`"${currentChar}" gespeichert! (${existing.length + 1} Variante${existing.length > 0 ? 'n' : ''})`);
     setTimeout(() => setSuccess(null), 2000);
   };
 
@@ -54,7 +65,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
     setIsRendering(true);
     try {
       const image = await renderText(text, profile.chars, {
-        fontSize: 34,
+        fontSize: 36,
         penColor: profile.color,
         backgroundColor: '#fffef5',
       });
@@ -72,6 +83,15 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
     }
   };
 
+  const getGroupLabel = (g: CharGroup) => {
+    switch (g) {
+      case 'lower': return 'Kleinbuchstaben';
+      case 'upper': return 'Großbuchstaben';
+      case 'numbers': return 'Zahlen';
+      case 'punctuation': return 'Satzzeichen';
+    }
+  };
+
   return (
     <div className="w-full max-w-5xl mx-auto">
       {/* Header */}
@@ -85,7 +105,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
           </button>
           <div className="flex-1">
             <h2 className="text-xl font-bold text-gray-800">{profile.name}</h2>
-            <p className="text-xs text-gray-500">{profile.totalDrawn} Buchstaben • {Math.round(coverage.coverage * 100)}% Abdeckung</p>
+            <p className="text-xs text-gray-500">{profile.totalDrawn} Buchstaben gezeichnet • {Math.round(coverage.coverage * 100)}% Abdeckung</p>
           </div>
         </div>
 
@@ -137,8 +157,12 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Zeichen-Bereich */}
           <div className="lg:col-span-2 bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 p-5">
-            <h3 className="font-bold text-gray-800 mb-3">
-              Zeichne den Buchstaben: <span className="text-3xl text-purple-600 ml-2">{currentChar}</span>
+            <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+              Zeichne den Buchstaben:
+              <span className="text-4xl text-purple-600 font-serif">{currentChar}</span>
+              {currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase() && (
+                <span className="text-xs text-gray-400 font-normal">(Großbuchstabe)</span>
+              )}
             </h3>
             
             <DrawingCanvas
@@ -166,8 +190,31 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
           {/* Buchstaben-Auswahl */}
           <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 p-5">
             <h3 className="font-bold text-gray-800 mb-3">Buchstabe wählen</h3>
-            <div className="grid grid-cols-6 gap-1.5">
-              {charList.map((char) => {
+            
+            {/* Gruppen-Tabs */}
+            <div className="flex gap-1 mb-3 flex-wrap">
+              {(Object.keys(charGroups) as CharGroup[]).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => {
+                    setCharGroup(g);
+                    setCurrentChar(charGroups[g][0]);
+                  }}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    charGroup === g ? 'bg-purple-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {getGroupLabel(g).slice(0, 5)}.
+                </button>
+              ))}
+            </div>
+
+            {/* Zeichen-Grid */}
+            <div className={`grid gap-1.5 ${
+              charGroup === 'lower' || charGroup === 'upper' ? 'grid-cols-7' :
+              charGroup === 'numbers' ? 'grid-cols-5' : 'grid-cols-5'
+            }`}>
+              {currentGroupChars.map((char) => {
                 const variants = profile.chars[char];
                 const count = variants ? variants.length : 0;
                 const isSelected = char === currentChar;
@@ -186,7 +233,9 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
                   >
                     {char === ' ' ? '⎵' : char}
                     {count > 0 && !isSelected && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold">
+                      <span className={`absolute -top-1 -right-1 min-w-[16px] h-4 px-1 text-white text-[9px] rounded-full flex items-center justify-center font-bold ${
+                        count >= 3 ? 'bg-green-500' : count >= 2 ? 'bg-yellow-500' : 'bg-gray-400'
+                      }`}>
                         {count}
                       </span>
                     )}
@@ -197,7 +246,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
 
             {/* Vorschau der gezeichneten Varianten */}
             {profile.chars[currentChar] && profile.chars[currentChar].length > 0 && (
-              <div className="mt-4">
+              <div className="mt-4 pt-4 border-t border-gray-100">
                 <h4 className="text-sm font-medium text-gray-600 mb-2">
                   Deine Varianten ({profile.chars[currentChar].length}):
                 </h4>
@@ -212,6 +261,12 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
                     </div>
                   ))}
                 </div>
+                {profile.chars[currentChar].length >= 3 && (
+                  <p className="text-xs text-green-600 mt-2">
+                    <i className="fas fa-star mr-1"></i>
+                    Super! Mehrere Varianten = natürlicheres Ergebnis
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -224,7 +279,7 @@ export default function ProfileDetail({ profile, onBack, onUpdate, onConvert }: 
             <textarea
               value={text}
               onChange={(e) => { setText(e.target.value); setRenderedImage(null); }}
-              placeholder="Gib hier deinen Text ein..."
+              placeholder="Gib hier deinen Text ein...&#10;&#10;Tipp: Groß- und Kleinbuchstaben werden unterschieden!"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none resize-none h-32"
             />
             <div className="flex gap-3 mt-3">

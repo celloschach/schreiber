@@ -15,6 +15,7 @@ export interface HandwritingProfile {
   name: string;
   createdAt: number;
   // Map von Zeichen zu Array von gezeichneten Varianten
+  // Key ist case-sensitive: 'A' und 'a' sind getrennt
   chars: Record<string, DrawnChar[]>;
   totalDrawn: number;
   color: string;

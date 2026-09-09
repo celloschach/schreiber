@@ -2,7 +2,9 @@ import { DrawnChar } from '../types';
 
 /**
  * Rendert einen Text als zusammenhängendes Canvas-Bild
- * Die Buchstaben werden natürlich aneinander gereiht mit leichten Variationen
+ * - Einheitlicher Hintergrund
+ * - Buchstaben in Wörtern nahe beieinander
+ * - Mehr Samples = natürlichere Variation
  */
 export async function renderText(
   text: string,
@@ -15,52 +17,72 @@ export async function renderText(
   } = {}
 ): Promise<string> {
   const {
-    fontSize = 32,
+    fontSize = 36,
     penColor = '#1a1a2e',
     backgroundColor = '#fffef5',
-    maxWidth = 700,
+    maxWidth = 750,
   } = options;
 
-  // Zuerst alle benötigten Buchstaben-Bilder laden
+  // Alle benötigten Buchstaben-Bilder vorladen
   const charImages = new Map<string, HTMLImageElement>();
-  const charMetrics = new Map<string, { width: number; height: number }>();
+  const charMetrics = new Map<string, { width: number; height: number; variants: number }>();
   
-  // Einzigartige Zeichen im Text sammeln
-  const uniqueChars = new Set(text.toLowerCase().split(''));
+  const uniqueChars = new Set(text.split(''));
   
-  // Bilder vorladen
   const loadPromises: Promise<void>[] = [];
   for (const char of uniqueChars) {
     if (char === ' ' || char === '\n') continue;
     
     const variants = chars[char];
     if (variants && variants.length > 0) {
-      // Zufällige Variante wählen
-      const variant = variants[Math.floor(Math.random() * variants.length)];
+      // Ersten als Referenz für Metriken nehmen
+      const ref = variants[0];
       
       const promise = new Promise<void>((resolve) => {
         const img = new Image();
         img.onload = () => {
-          charImages.set(char, img);
-          charMetrics.set(char, { width: variant.width, height: variant.height });
+          charImages.set(char + '_ref', img);
+          charMetrics.set(char, { 
+            width: ref.width, 
+            height: ref.height,
+            variants: variants.length 
+          });
           resolve();
         };
         img.onerror = () => resolve();
-        img.src = variant.imageData;
+        img.src = ref.imageData;
       });
       loadPromises.push(promise);
+      
+      // Alle Varianten laden
+      for (let i = 0; i < variants.length; i++) {
+        const v = variants[i];
+        const p = new Promise<void>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            charImages.set(char + '_' + i, img);
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = v.imageData;
+        });
+        loadPromises.push(p);
+      }
     }
   }
   
   await Promise.all(loadPromises);
   
+  // Abstand berechnen: Buchstaben in einem Wort sollen nah beieinander sein
+  // In echter Handschrift überlappen sich Buchstaben leicht
+  const letterSpacing = -fontSize * 0.08; // Negativ = Überlappung
+  const wordSpacing = fontSize * 0.3;
+  const lineHeight = fontSize * 1.5;
+  
   // Zeilen berechnen
   const lines: string[][] = [];
   let currentLine: string[] = [];
   let currentWidth = 0;
-  const lineHeight = fontSize * 1.4;
-  const charSpacing = fontSize * 0.05;
-  const wordSpacing = fontSize * 0.35;
   
   for (const char of text) {
     if (char === '\n') {
@@ -74,13 +96,12 @@ export async function renderText(
     if (char === ' ') {
       charWidth = wordSpacing;
     } else {
-      const metrics = charMetrics.get(char.toLowerCase());
+      const metrics = charMetrics.get(char);
       if (metrics) {
-        // Breite proportional zur Schriftgröße skalieren
         const scale = fontSize / metrics.height;
-        charWidth = metrics.width * scale + charSpacing;
+        charWidth = metrics.width * scale + letterSpacing;
       } else {
-        charWidth = fontSize * 0.5 + charSpacing;
+        charWidth = fontSize * 0.5 + letterSpacing;
       }
     }
     
@@ -95,33 +116,19 @@ export async function renderText(
   }
   if (currentLine.length > 0) lines.push(currentLine);
   
-  // Canvas-Größe berechnen
-  const padding = 20;
+  // Canvas-Größe
+  const padding = 24;
   const canvasWidth = maxWidth + padding * 2;
   const canvasHeight = lines.length * lineHeight + padding * 2;
   
-  // Canvas erstellen
   const canvas = document.createElement('canvas');
   canvas.width = canvasWidth;
   canvas.height = canvasHeight;
   const ctx = canvas.getContext('2d')!;
   
-  // Hintergrund
+  // Einheitlicher Hintergrund - keine Textur!
   ctx.fillStyle = backgroundColor;
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-  
-  // Leichte Papier-Textur
-  ctx.globalAlpha = 0.015;
-  for (let i = 0; i < 2000; i++) {
-    ctx.fillStyle = `hsl(${30 + Math.random() * 20}, 20%, ${50 + Math.random() * 30}%)`;
-    ctx.fillRect(
-      Math.random() * canvasWidth,
-      Math.random() * canvasHeight,
-      Math.random() * 2 + 0.5,
-      Math.random() * 2 + 0.5
-    );
-  }
-  ctx.globalAlpha = 1;
   
   // Buchstaben rendern
   let y = padding + fontSize;
@@ -135,44 +142,53 @@ export async function renderText(
         continue;
       }
       
-      const img = charImages.get(char.toLowerCase());
-      const metrics = charMetrics.get(char.toLowerCase());
+      const metrics = charMetrics.get(char);
       
-      if (img && metrics) {
+      if (metrics) {
         const scale = fontSize / metrics.height;
         const drawWidth = metrics.width * scale;
         const drawHeight = fontSize;
         
-        // Natürliche Variationen
-        const rotation = (Math.random() - 0.5) * 0.04; // Leichte Drehung
-        const yOffset = (Math.random() - 0.5) * 2; // Leichte Höhen-Variation
-        const scaleVar = 0.97 + Math.random() * 0.06; // Leichte Größen-Variation
+        // Variation basierend auf Anzahl der Samples:
+        // Wenige Samples = wenig Variation, viele Samples = mehr natürliche Variation
+        const variantCount = metrics.variants;
+        const variationFactor = Math.min(variantCount / 5, 1); // 0 bis 1
         
-        ctx.save();
-        ctx.translate(x + drawWidth / 2, y + yOffset);
-        ctx.rotate(rotation);
-        ctx.scale(scaleVar, scaleVar);
+        // Zufällige Variante auswählen
+        const variantIdx = Math.floor(Math.random() * variantCount);
+        const img = charImages.get(char + '_' + variantIdx);
         
-        // Buchstaben zeichnen
-        ctx.drawImage(img, -drawWidth / 2, -drawHeight * 0.85, drawWidth, drawHeight);
-        ctx.restore();
+        if (img) {
+          // Natürliche Variationen - stärker bei mehr Samples
+          const maxRotation = 0.03 * variationFactor; // Max ~1.7° bei vielen Samples
+          const maxOffset = 1.5 * variationFactor; // Max 1.5px bei vielen Samples
+          const maxScaleVar = 0.03 * variationFactor; // Max 3% bei vielen Samples
+          
+          const rotation = (Math.random() - 0.5) * 2 * maxRotation;
+          const yOffset = (Math.random() - 0.5) * 2 * maxOffset;
+          const scaleVar = 1 + (Math.random() - 0.5) * 2 * maxScaleVar;
+          
+          ctx.save();
+          ctx.translate(x + drawWidth / 2, y + yOffset);
+          ctx.rotate(rotation);
+          ctx.scale(scaleVar, scaleVar);
+          
+          ctx.drawImage(img, -drawWidth / 2, -drawHeight * 0.85, drawWidth, drawHeight);
+          ctx.restore();
+        }
         
-        x += drawWidth + charSpacing;
+        x += drawWidth + letterSpacing;
       } else {
-        // Fallback: Zeichen mit Canvas-Font
+        // Fallback für nicht gelernte Zeichen
         ctx.save();
         ctx.font = `italic ${fontSize}px Georgia, serif`;
         ctx.fillStyle = penColor;
-        ctx.globalAlpha = 0.7;
-        
-        const rotation = (Math.random() - 0.5) * 0.03;
-        ctx.translate(x, y);
-        ctx.rotate(rotation);
-        ctx.fillText(char, 0, 0);
+        ctx.globalAlpha = 0.6;
+        ctx.fillText(char, x, y);
         ctx.restore();
         ctx.globalAlpha = 1;
         
-        x += fontSize * 0.5 + charSpacing;
+        x += fontSize * 0.5 + letterSpacing;
       }
     }
     
@@ -183,7 +199,7 @@ export async function renderText(
 }
 
 /**
- * Berechnet die Alphabet-Abdeckung
+ * Berechnet die Alphabet-Abdeckung (Groß + Klein getrennt)
  */
 export function getAlphabetCoverage(chars: Record<string, DrawnChar[]>): {
   coverage: number;
@@ -191,7 +207,8 @@ export function getAlphabetCoverage(chars: Record<string, DrawnChar[]>): {
   coveredChars: string[];
   missingChars: string[];
 } {
-  const required = 'abcdefghijklmnopqrstuvwxyzäöüß0123456789,.!?-'.split('');
+  // Kleinbuchstaben + Großbuchstaben + Zahlen + Satzzeichen
+  const required = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-'.split('');
   const covered: string[] = [];
   const missing: string[] = [];
   

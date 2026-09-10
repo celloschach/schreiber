@@ -7,7 +7,7 @@ import ConvertedTexts from './components/ConvertedTexts';
 
 export default function App() {
   // Datum und Uhrzeit des letzten Updates - MANUELL AKTUALISIEREN bei jedem Build!
-  const lastUpdate = '21.01.2026, 15:30 Uhr';
+  const lastUpdate = '21.01.2026, 15:40 Uhr';
 
   const [view, setView] = useState<AppView>('profiles');
   const [profiles, setProfiles] = useState<HandwritingProfile[]>([]);

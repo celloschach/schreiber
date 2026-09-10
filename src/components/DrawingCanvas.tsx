@@ -164,7 +164,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const imgData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const data = imgData.data;
     
-    // Bounding Box finden - nur sehr dunkle Pixel (die gezeichneten Striche)
+    // Bounding Box finden - Pixel die nicht weiß sind (die gezeichneten Striche)
     let minX = CANVAS_WIDTH, minY = CANVAS_HEIGHT, maxX = 0, maxY = 0;
     let found = false;
     
@@ -175,8 +175,11 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
         const g = data[idx + 1];
         const b = data[idx + 2];
         
-        // Nur sehr dunkle Pixel (die gezeichneten Striche)
-        if (r < 100 && g < 100 && b < 100) {
+        // Pixel die nicht weiß sind (Hintergrund ist #ffffff = 255,255,255)
+        // Hilfslinien sind #f0f0f0 = 240,240,240
+        // Guide-Zeichen ist #f5f5f5 = 245,245,245
+        // Gezeichnete Striche sind deutlich dunkler
+        if (r < 230 || g < 230 || b < 230) {
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
           maxX = Math.max(maxX, x);
@@ -213,14 +216,46 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     // Transparenter Hintergrund
     resultCtx.clearRect(0, 0, normalizedWidth, normalizedHeight);
     
-    // Gezeichneten Bereich ausschneiden und skalieren
-    resultCtx.imageSmoothingEnabled = true;
-    resultCtx.imageSmoothingQuality = 'high';
-    resultCtx.drawImage(
-      canvas,
-      minX, minY, cropWidth, cropHeight,
-      0, 0, normalizedWidth, normalizedHeight
-    );
+    // Pixel-für-Pixel kopieren - nur die gezeichneten Striche, kein Hintergrund!
+    const resultImgData = resultCtx.getImageData(0, 0, normalizedWidth, normalizedHeight);
+    const resultData = resultImgData.data;
+    
+    for (let y = 0; y < cropHeight; y++) {
+      for (let x = 0; x < cropWidth; x++) {
+        const srcX = minX + x;
+        const srcY = minY + y;
+        const srcIdx = (srcY * CANVAS_WIDTH + srcX) * 4;
+        
+        const r = data[srcIdx];
+        const g = data[srcIdx + 1];
+        const b = data[srcIdx + 2];
+        
+        // Nur dunkle Pixel kopieren (die gezeichneten Striche)
+        if (r < 200 || g < 200 || b < 200) {
+          // Ziel-Position berechnen (mit Skalierung)
+          const dstX = Math.round(x * scale);
+          const dstY = Math.round(y * scale);
+          
+          // Pixel in den skalierten Bereich schreiben
+          for (let dy = 0; dy < Math.ceil(scale); dy++) {
+            for (let dx = 0; dx < Math.ceil(scale); dx++) {
+              const finalX = dstX + dx;
+              const finalY = dstY + dy;
+              
+              if (finalX < normalizedWidth && finalY < normalizedHeight) {
+                const dstIdx = (finalY * normalizedWidth + finalX) * 4;
+                resultData[dstIdx] = r;
+                resultData[dstIdx + 1] = g;
+                resultData[dstIdx + 2] = b;
+                resultData[dstIdx + 3] = 255; // Voll sichtbar
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    resultCtx.putImageData(resultImgData, 0, 0);
     
     // Als PNG speichern (unterstützt Transparenz)
     const imageData = resultCanvas.toDataURL('image/png');

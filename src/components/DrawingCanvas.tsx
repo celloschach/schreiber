@@ -7,50 +7,42 @@ interface DrawingCanvasProps {
   penSize: number;
 }
 
-// Intelligente Buchstaben-Höhen für natürliches Aussehen
+// Einfache Buchstaben-Höhen
 const getNormalizedHeight = (char: string): number => {
   const lower = char.toLowerCase();
   
-  // === GROSSBUCHSTABEN ===
-  // ALLE Großbuchstaben (inkl. G, J, P, Q, Y): gleiche Höhe 120px
-  // KEINE Großbuchstaben gehen in den Keller!
+  // Großbuchstaben: 120px
   if (char !== lower) return 120;
   
-  // === KLEINBUCHSTABEN ===
-  // Kleinbuchstaben mit Oberlänge (ragen nach oben)
-  // b, d, f, h, k, l, t → x-height + Oberlänge
+  // Klein mit Oberlänge (b, d, f, h, k, l, t): 110px
   if ('bdfhklt'.includes(lower)) return 110;
   
-  // Kleinbuchstaben mit Unterlänge (Keller)
-  // g, j, p, q, y → x-height + Keller
-  // x-height = 55px, Keller = 25px → gesamt 80px
+  // Klein mit Keller (g, j, p, q, y): 80px
   if ('gjpqy'.includes(lower)) return 80;
   
-  // Kleinbuchstaben ohne Ober-/Unterlänge (reine x-height)
-  // a, c, e, m, n, o, r, s, u, v, w, x, z
-  if ('acemnorsuvwxz'.includes(lower)) return 55;
+  // Klein normal (a, c, e, m, n, o, r, s, u, v, w, x, z): 60px
+  if ('acemnorsuvwxz'.includes(lower)) return 60;
   
-  // 'i' mit Punkt (x-height + Punkt)
-  if (lower === 'i') return 70;
+  // i: 75px
+  if (lower === 'i') return 75;
   
-  // 'ß' (x-height)
-  if (lower === 'ß') return 55;
+  // ß: 60px
+  if (lower === 'ß') return 60;
   
-  // === ZAHLEN ===
-  if (/[0-9]/.test(char)) return 90;
+  // Zahlen: 100px
+  if (/[0-9]/.test(char)) return 100;
   
-  // === SATZZEICHEN ===
-  // ? und ! : so groß wie Großbuchstaben (120px)
+  // ? !: 120px
   if ('?!'.includes(char)) return 120;
   
-  // . , : kleiner
+  // . ,: 40px
   if ('.,'.includes(char)) return 40;
   
-  // Bindestrich - : sehr klein
-  if (char === '-') return 15;
+  // -: 20px
+  if (char === '-') return 20;
   
-  // Default
-  return 55;
+  // Default: 60px
+  return 60;
 };
 
 export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }: DrawingCanvasProps) {
@@ -63,9 +55,11 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
   const CANVAS_HEIGHT = 240;
 
   const drawGuide = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Weißer Hintergrund
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
+    // Hilfslinien (sehr hell)
     ctx.strokeStyle = '#f0f0f0';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
@@ -82,6 +76,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     ctx.setLineDash([]);
     
+    // Guide-Zeichen (sehr blass)
     const isUpperCase = currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase();
     const displayChar = currentChar === ' ' ? '' : currentChar;
     
@@ -161,167 +156,6 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     setHasDrawn(false);
   };
 
-  // === LINIEN-DICKE NORMALISIERUNG ===
-  const TARGET_LINE_THICKNESS = 5; // Ziel-Linien-Dicke in Pixeln
-
-  const measureLineThickness = (binary: Uint8Array, width: number, height: number): number => {
-    const slices = 15;
-    const thicknesses: number[] = [];
-    
-    for (let s = 0; s < slices; s++) {
-      const y = Math.round((s + 0.5) * height / slices);
-      if (y >= height) continue;
-      
-      let inLine = false;
-      let lineWidth = 0;
-      
-      for (let x = 0; x < width; x++) {
-        const isDark = binary[y * width + x] === 1;
-        if (isDark && !inLine) {
-          inLine = true;
-          lineWidth = 1;
-        } else if (isDark && inLine) {
-          lineWidth++;
-        } else if (!isDark && inLine) {
-          inLine = false;
-          if (lineWidth > 2) thicknesses.push(lineWidth);
-        }
-      }
-      if (inLine && lineWidth > 2) thicknesses.push(lineWidth);
-    }
-    
-    if (thicknesses.length === 0) return TARGET_LINE_THICKNESS;
-    thicknesses.sort((a, b) => a - b);
-    return thicknesses[Math.floor(thicknesses.length / 2)];
-  };
-
-  const dilate = (binary: Uint8Array, width: number, height: number, radius: number): Uint8Array => {
-    const result = new Uint8Array(binary);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (binary[y * width + x] === 1) {
-          for (let dy = -radius; dy <= radius; dy++) {
-            for (let dx = -radius; dx <= radius; dx++) {
-              if (dx * dx + dy * dy <= radius * radius) {
-                const nx = x + dx, ny = y + dy;
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                  result[ny * width + nx] = 1;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    return result;
-  };
-
-  const erode = (binary: Uint8Array, width: number, height: number, radius: number): Uint8Array => {
-    const result = new Uint8Array(binary.length);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (binary[y * width + x] === 1) {
-          let allDark = true;
-          for (let dy = -radius; dy <= radius && allDark; dy++) {
-            for (let dx = -radius; dx <= radius && allDark; dx++) {
-              if (dx * dx + dy * dy <= radius * radius) {
-                const nx = x + dx, ny = y + dy;
-                if (nx < 0 || nx >= width || ny < 0 || ny >= height || binary[ny * width + nx] === 0) {
-                  allDark = false;
-                }
-              }
-            }
-          }
-          if (allDark) result[y * width + x] = 1;
-        }
-      }
-    }
-    return result;
-  };
-
-  const normalizeLineThickness = (imageData: ImageData, width: number, height: number, targetThickness: number): ImageData => {
-    const binary = new Uint8Array(width * height);
-    const data = imageData.data;
-    
-    for (let i = 0; i < binary.length; i++) {
-      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
-      binary[i] = (r < 200 || g < 200 || b < 200) ? 1 : 0;
-    }
-    
-    const currentThickness = measureLineThickness(binary, width, height);
-    const diff = targetThickness - currentThickness;
-    
-    // Nur anpassen wenn Unterschied > 1.5px
-    if (Math.abs(diff) <= 1.5) return imageData;
-    
-    const result = new ImageData(width, height);
-    const resultData = result.data;
-    const adjustment = diff > 0 ? 1 : -1;
-    
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = y * width + x;
-        const pixelIdx = idx * 4;
-        
-        if (binary[idx] === 1) {
-          if (adjustment > 0) {
-            // Dilate: Linien dicker machen
-            resultData[pixelIdx] = data[pixelIdx];
-            resultData[pixelIdx + 1] = data[pixelIdx + 1];
-            resultData[pixelIdx + 2] = data[pixelIdx + 2];
-            resultData[pixelIdx + 3] = 255;
-            
-            for (let dy = -1; dy <= 1; dy++) {
-              for (let dx = -1; dx <= 1; dx++) {
-                if (dx === 0 && dy === 0) continue;
-                const nx = x + dx, ny = y + dy;
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                  const nIdx = (ny * width + nx) * 4;
-                  if (binary[ny * width + nx] === 0) {
-                    resultData[nIdx] = Math.max(0, data[nIdx] - 40);
-                    resultData[nIdx + 1] = Math.max(0, data[nIdx + 1] - 40);
-                    resultData[nIdx + 2] = Math.max(0, data[nIdx + 2] - 40);
-                    resultData[nIdx + 3] = 255;
-                  }
-                }
-              }
-            }
-          } else {
-            // Erode: Linien dünner machen
-            let allDark = true;
-            for (let dy = -1; dy <= 1 && allDark; dy++) {
-              for (let dx = -1; dx <= 1 && allDark; dx++) {
-                const nx = x + dx, ny = y + dy;
-                if (nx < 0 || nx >= width || ny < 0 || ny >= height || binary[ny * width + nx] === 0) {
-                  allDark = false;
-                }
-              }
-            }
-            
-            if (allDark) {
-              resultData[pixelIdx] = data[pixelIdx];
-              resultData[pixelIdx + 1] = data[pixelIdx + 1];
-              resultData[pixelIdx + 2] = data[pixelIdx + 2];
-              resultData[pixelIdx + 3] = 255;
-            } else {
-              resultData[pixelIdx] = Math.min(255, data[pixelIdx] + 60);
-              resultData[pixelIdx + 1] = Math.min(255, data[pixelIdx + 1] + 60);
-              resultData[pixelIdx + 2] = Math.min(255, data[pixelIdx + 2] + 60);
-              resultData[pixelIdx + 3] = 255;
-            }
-          }
-        } else {
-          resultData[pixelIdx] = data[pixelIdx];
-          resultData[pixelIdx + 1] = data[pixelIdx + 1];
-          resultData[pixelIdx + 2] = data[pixelIdx + 2];
-          resultData[pixelIdx + 3] = data[pixelIdx + 3];
-        }
-      }
-    }
-    
-    return result;
-  };
-
   const save = useCallback(() => {
     if (!hasDrawn) return;
     
@@ -330,8 +164,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const imgData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const data = imgData.data;
     
-    const BG_THRESHOLD = 220;
-    
+    // Bounding Box finden - nur sehr dunkle Pixel (die gezeichneten Striche)
     let minX = CANVAS_WIDTH, minY = CANVAS_HEIGHT, maxX = 0, maxY = 0;
     let found = false;
     
@@ -342,7 +175,8 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
         const g = data[idx + 1];
         const b = data[idx + 2];
         
-        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
+        // Nur sehr dunkle Pixel (die gezeichneten Striche)
+        if (r < 100 && g < 100 && b < 100) {
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
           maxX = Math.max(maxX, x);
@@ -354,6 +188,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     if (!found) return;
     
+    // Padding
     const padding = 4;
     minX = Math.max(0, minX - padding);
     minY = Math.max(0, minY - padding);
@@ -363,64 +198,34 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
     
+    // Auf Ziel-Höhe skalieren
     const targetHeight = getNormalizedHeight(currentChar);
     const scale = targetHeight / cropHeight;
     const normalizedWidth = Math.round(cropWidth * scale);
     const normalizedHeight = targetHeight;
     
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = cropWidth;
-    tempCanvas.height = cropHeight;
-    const tempCtx = tempCanvas.getContext('2d')!;
+    // Neues Canvas mit transparentem Hintergrund
+    const resultCanvas = document.createElement('canvas');
+    resultCanvas.width = normalizedWidth;
+    resultCanvas.height = normalizedHeight;
+    const resultCtx = resultCanvas.getContext('2d')!;
     
-    // Transparenter Hintergrund - nur Striche werden gespeichert
-    tempCtx.clearRect(0, 0, cropWidth, cropHeight);
+    // Transparenter Hintergrund
+    resultCtx.clearRect(0, 0, normalizedWidth, normalizedHeight);
     
-    const tempImgData = tempCtx.getImageData(0, 0, cropWidth, cropHeight);
-    const tempData = tempImgData.data;
+    // Gezeichneten Bereich ausschneiden und skalieren
+    resultCtx.imageSmoothingEnabled = true;
+    resultCtx.imageSmoothingQuality = 'high';
+    resultCtx.drawImage(
+      canvas,
+      minX, minY, cropWidth, cropHeight,
+      0, 0, normalizedWidth, normalizedHeight
+    );
     
-    for (let y = 0; y < cropHeight; y++) {
-      for (let x = 0; x < cropWidth; x++) {
-        const srcIdx = ((y + minY) * CANVAS_WIDTH + (x + minX)) * 4;
-        const dstIdx = (y * cropWidth + x) * 4;
-        
-        const r = data[srcIdx];
-        const g = data[srcIdx + 1];
-        const b = data[srcIdx + 2];
-        
-        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
-          tempData[dstIdx] = r;
-          tempData[dstIdx + 1] = g;
-          tempData[dstIdx + 2] = b;
-          tempData[dstIdx + 3] = 255;
-        }
-      }
-    }
-    
-    tempCtx.putImageData(tempImgData, 0, 0);
-    
-    const normCanvas = document.createElement('canvas');
-    normCanvas.width = normalizedWidth;
-    normCanvas.height = normalizedHeight;
-    const normCtx = normCanvas.getContext('2d')!;
-    
-    // TRANSPARENTER Hintergrund statt weiß!
-    // So können sich Buchstaben überlappen ohne sich zu verdecken
-    normCtx.clearRect(0, 0, normalizedWidth, normalizedHeight);
-    
-    normCtx.imageSmoothingEnabled = true;
-    normCtx.imageSmoothingQuality = 'high';
-    normCtx.drawImage(tempCanvas, 0, 0, normalizedWidth, normalizedHeight);
-    
-    // === LINIEN-DICKE NORMALISIEREN ===
-    const normImgData = normCtx.getImageData(0, 0, normalizedWidth, normalizedHeight);
-    const normalizedImgData = normalizeLineThickness(normImgData, normalizedWidth, normalizedHeight, TARGET_LINE_THICKNESS);
-    normCtx.putImageData(normalizedImgData, 0, 0);
-    
-    // PNG statt JPEG (PNG unterstützt Transparenz)
-    const imageData = normCanvas.toDataURL('image/png');
+    // Als PNG speichern (unterstützt Transparenz)
+    const imageData = resultCanvas.toDataURL('image/png');
     onSave(imageData, normalizedWidth, normalizedHeight);
-  }, [hasDrawn, onSave]);
+  }, [hasDrawn, onSave, currentChar]);
 
   return (
     <div className="flex flex-col items-center">

@@ -171,13 +171,13 @@ export async function renderText(
           const lowerChar = char.toLowerCase();
           
           // Keller-Buchstaben (g, j, p, q, y): x-height gleich wie normale Buchstaben
-          // Gesamthöhe = 95px (60px x-height + 35px Keller)
-          // baselineOffset muss so sein, dass die oberen 60px auf gleicher Höhe sind
+          // Gesamthöhe = 80px (55px x-height + 25px Keller)
+          // baselineOffset muss so sein, dass die oberen 55px auf gleicher Höhe sind
           if ('gjpqy'.includes(lowerChar)) {
-            // drawHeight = fontSize * (95/120) = fontSize * 0.792
+            // drawHeight = fontSize * (80/120) = fontSize * 0.667
             // Wir wollen: baselineOffset = fontSize * 0.425 (wie normale Buchstaben)
-            // Also: baselineOffset = drawHeight * (0.425 / 0.792) = drawHeight * 0.537
-            baselineOffset = drawHeight * 0.537;
+            // Also: baselineOffset = drawHeight * (0.425 / 0.667) = drawHeight * 0.637
+            baselineOffset = drawHeight * 0.637;
           }
           
           ctx.save();

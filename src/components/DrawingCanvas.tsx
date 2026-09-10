@@ -8,42 +8,49 @@ interface DrawingCanvasProps {
 }
 
 // Intelligente Buchstaben-Höhen für natürliches Aussehen
-// Alle Kleinbuchstaben haben die gleiche x-height (60px)
-// Buchstaben mit Oberlänge ragen nach oben
-// Buchstaben mit Unterlänge ragen nach unten (Keller)
 const getNormalizedHeight = (char: string): number => {
   const lower = char.toLowerCase();
   
-  // Großbuchstaben: volle Höhe (120px)
+  // === GROSSBUCHSTABEN ===
+  // ALLE Großbuchstaben (inkl. G, J, P, Q, Y): gleiche Höhe 120px
+  // KEINE Großbuchstaben gehen in den Keller!
   if (char !== lower) return 120;
   
+  // === KLEINBUCHSTABEN ===
   // Kleinbuchstaben mit Oberlänge (ragen nach oben)
   // b, d, f, h, k, l, t → x-height + Oberlänge
   if ('bdfhklt'.includes(lower)) return 110;
   
-  // Kleinbuchstaben mit Unterlänge (ragen nach unten in den Keller)
+  // Kleinbuchstaben mit Unterlänge (Keller)
   // g, j, p, q, y → x-height + Keller
-  // x-height = 60px, Keller = 35px → gesamt 95px
-  if ('gjpqy'.includes(lower)) return 95;
+  // x-height = 55px, Keller = 25px → gesamt 80px
+  if ('gjpqy'.includes(lower)) return 80;
   
   // Kleinbuchstaben ohne Ober-/Unterlänge (reine x-height)
   // a, c, e, m, n, o, r, s, u, v, w, x, z
-  if ('acemnorsuvwxz'.includes(lower)) return 60;
+  if ('acemnorsuvwxz'.includes(lower)) return 55;
   
   // 'i' mit Punkt (x-height + Punkt)
-  if (lower === 'i') return 75;
+  if (lower === 'i') return 70;
   
   // 'ß' (x-height)
-  if (lower === 'ß') return 60;
+  if (lower === 'ß') return 55;
   
-  // Zahlen (x-height + klein wenig)
-  if (/[0-9]/.test(char)) return 80;
+  // === ZAHLEN ===
+  if (/[0-9]/.test(char)) return 90;
   
-  // Satzzeichen
-  if ('.,!?-'.includes(char)) return 30;
+  // === SATZZEICHEN ===
+  // ? und ! : so groß wie Großbuchstaben (120px)
+  if ('?!'.includes(char)) return 120;
+  
+  // . , : kleiner
+  if ('.,'.includes(char)) return 40;
+  
+  // Bindestrich - : sehr klein
+  if (char === '-') return 15;
   
   // Default
-  return 60;
+  return 55;
 };
 
 export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }: DrawingCanvasProps) {
@@ -154,6 +161,167 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     setHasDrawn(false);
   };
 
+  // === LINIEN-DICKE NORMALISIERUNG ===
+  const TARGET_LINE_THICKNESS = 5; // Ziel-Linien-Dicke in Pixeln
+
+  const measureLineThickness = (binary: Uint8Array, width: number, height: number): number => {
+    const slices = 15;
+    const thicknesses: number[] = [];
+    
+    for (let s = 0; s < slices; s++) {
+      const y = Math.round((s + 0.5) * height / slices);
+      if (y >= height) continue;
+      
+      let inLine = false;
+      let lineWidth = 0;
+      
+      for (let x = 0; x < width; x++) {
+        const isDark = binary[y * width + x] === 1;
+        if (isDark && !inLine) {
+          inLine = true;
+          lineWidth = 1;
+        } else if (isDark && inLine) {
+          lineWidth++;
+        } else if (!isDark && inLine) {
+          inLine = false;
+          if (lineWidth > 2) thicknesses.push(lineWidth);
+        }
+      }
+      if (inLine && lineWidth > 2) thicknesses.push(lineWidth);
+    }
+    
+    if (thicknesses.length === 0) return TARGET_LINE_THICKNESS;
+    thicknesses.sort((a, b) => a - b);
+    return thicknesses[Math.floor(thicknesses.length / 2)];
+  };
+
+  const dilate = (binary: Uint8Array, width: number, height: number, radius: number): Uint8Array => {
+    const result = new Uint8Array(binary);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (binary[y * width + x] === 1) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+              if (dx * dx + dy * dy <= radius * radius) {
+                const nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  result[ny * width + nx] = 1;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return result;
+  };
+
+  const erode = (binary: Uint8Array, width: number, height: number, radius: number): Uint8Array => {
+    const result = new Uint8Array(binary.length);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (binary[y * width + x] === 1) {
+          let allDark = true;
+          for (let dy = -radius; dy <= radius && allDark; dy++) {
+            for (let dx = -radius; dx <= radius && allDark; dx++) {
+              if (dx * dx + dy * dy <= radius * radius) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || nx >= width || ny < 0 || ny >= height || binary[ny * width + nx] === 0) {
+                  allDark = false;
+                }
+              }
+            }
+          }
+          if (allDark) result[y * width + x] = 1;
+        }
+      }
+    }
+    return result;
+  };
+
+  const normalizeLineThickness = (imageData: ImageData, width: number, height: number, targetThickness: number): ImageData => {
+    const binary = new Uint8Array(width * height);
+    const data = imageData.data;
+    
+    for (let i = 0; i < binary.length; i++) {
+      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+      binary[i] = (r < 200 || g < 200 || b < 200) ? 1 : 0;
+    }
+    
+    const currentThickness = measureLineThickness(binary, width, height);
+    const diff = targetThickness - currentThickness;
+    
+    // Nur anpassen wenn Unterschied > 1.5px
+    if (Math.abs(diff) <= 1.5) return imageData;
+    
+    const result = new ImageData(width, height);
+    const resultData = result.data;
+    const adjustment = diff > 0 ? 1 : -1;
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        const pixelIdx = idx * 4;
+        
+        if (binary[idx] === 1) {
+          if (adjustment > 0) {
+            // Dilate: Linien dicker machen
+            resultData[pixelIdx] = data[pixelIdx];
+            resultData[pixelIdx + 1] = data[pixelIdx + 1];
+            resultData[pixelIdx + 2] = data[pixelIdx + 2];
+            resultData[pixelIdx + 3] = 255;
+            
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  const nIdx = (ny * width + nx) * 4;
+                  if (binary[ny * width + nx] === 0) {
+                    resultData[nIdx] = Math.max(0, data[nIdx] - 40);
+                    resultData[nIdx + 1] = Math.max(0, data[nIdx + 1] - 40);
+                    resultData[nIdx + 2] = Math.max(0, data[nIdx + 2] - 40);
+                    resultData[nIdx + 3] = 255;
+                  }
+                }
+              }
+            }
+          } else {
+            // Erode: Linien dünner machen
+            let allDark = true;
+            for (let dy = -1; dy <= 1 && allDark; dy++) {
+              for (let dx = -1; dx <= 1 && allDark; dx++) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || nx >= width || ny < 0 || ny >= height || binary[ny * width + nx] === 0) {
+                  allDark = false;
+                }
+              }
+            }
+            
+            if (allDark) {
+              resultData[pixelIdx] = data[pixelIdx];
+              resultData[pixelIdx + 1] = data[pixelIdx + 1];
+              resultData[pixelIdx + 2] = data[pixelIdx + 2];
+              resultData[pixelIdx + 3] = 255;
+            } else {
+              resultData[pixelIdx] = Math.min(255, data[pixelIdx] + 60);
+              resultData[pixelIdx + 1] = Math.min(255, data[pixelIdx + 1] + 60);
+              resultData[pixelIdx + 2] = Math.min(255, data[pixelIdx + 2] + 60);
+              resultData[pixelIdx + 3] = 255;
+            }
+          }
+        } else {
+          resultData[pixelIdx] = data[pixelIdx];
+          resultData[pixelIdx + 1] = data[pixelIdx + 1];
+          resultData[pixelIdx + 2] = data[pixelIdx + 2];
+          resultData[pixelIdx + 3] = data[pixelIdx + 3];
+        }
+      }
+    }
+    
+    return result;
+  };
+
   const save = useCallback(() => {
     if (!hasDrawn) return;
     
@@ -243,6 +411,11 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     normCtx.imageSmoothingEnabled = true;
     normCtx.imageSmoothingQuality = 'high';
     normCtx.drawImage(tempCanvas, 0, 0, normalizedWidth, normalizedHeight);
+    
+    // === LINIEN-DICKE NORMALISIEREN ===
+    const normImgData = normCtx.getImageData(0, 0, normalizedWidth, normalizedHeight);
+    const normalizedImgData = normalizeLineThickness(normImgData, normalizedWidth, normalizedHeight, TARGET_LINE_THICKNESS);
+    normCtx.putImageData(normalizedImgData, 0, 0);
     
     // PNG statt JPEG (PNG unterstützt Transparenz)
     const imageData = normCanvas.toDataURL('image/png');

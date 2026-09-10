@@ -81,8 +81,11 @@ export async function renderText(
       const variants = chars[char];
       if (variants && variants.length > 0) {
         const sample = variants[0];
-        const scale = fontSize / sample.height;
-        charWidth = sample.width * scale + letterSpacing;
+        // Proportionale Skalierung basierend auf gespeicherter Höhe
+        const relativeScale = sample.height / 120;
+        const drawHeight = fontSize * relativeScale;
+        const drawWidth = sample.width * (drawHeight / sample.height);
+        charWidth = drawWidth + letterSpacing;
       } else {
         charWidth = fontSize * 0.5 + letterSpacing;
       }
@@ -136,9 +139,11 @@ export async function renderText(
         const img = imageCache.get(cacheKey);
         
         if (img) {
-          const scale = fontSize / sample.height;
-          const drawWidth = sample.width * scale;
-          const drawHeight = fontSize;
+          // Proportionale Skalierung basierend auf gespeicherter Höhe
+          // Großbuchstaben (120px) werden größer als Kleinbuchstaben (60px)
+          const relativeScale = sample.height / 120; // 120px ist die Max-Höhe
+          const drawHeight = fontSize * relativeScale;
+          const drawWidth = sample.width * (drawHeight / sample.height);
 
           // Buchstabe zeichnen - Bild ist bereits geladen!
           ctx.drawImage(img, x, y - drawHeight * 0.85, drawWidth, drawHeight);

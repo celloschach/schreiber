@@ -6,19 +6,15 @@ import ProfileDetail from './components/ProfileDetail';
 import ConvertedTexts from './components/ConvertedTexts';
 
 export default function App() {
-  const [lastUpdate, setLastUpdate] = useState('');
+  // Datum und Uhrzeit direkt berechnen - immer aktuell!
+  const lastUpdate = new Date().toLocaleString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
-  useEffect(() => {
-    // Aktuelles Datum und Uhrzeit beim Laden setzen
-    const now = new Date();
-    setLastUpdate(now.toLocaleString('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }));
-  }, []);
   const [view, setView] = useState<AppView>('profiles');
   const [profiles, setProfiles] = useState<HandwritingProfile[]>([]);
   const [converted, setConverted] = useState<ConvertedText[]>([]);

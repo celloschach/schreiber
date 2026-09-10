@@ -5,16 +5,20 @@ import HandwritingProfiles from './components/HandwritingProfiles';
 import ProfileDetail from './components/ProfileDetail';
 import ConvertedTexts from './components/ConvertedTexts';
 
-// Build-Timestamp - wird bei jedem Build aktualisiert
-const LAST_UPDATE = new Date('2026-01-20T12:00:00').toLocaleString('de-DE', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-});
-
 export default function App() {
+  const [lastUpdate, setLastUpdate] = useState('');
+
+  useEffect(() => {
+    // Aktuelles Datum und Uhrzeit beim Laden setzen
+    const now = new Date();
+    setLastUpdate(now.toLocaleString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }));
+  }, []);
   const [view, setView] = useState<AppView>('profiles');
   const [profiles, setProfiles] = useState<HandwritingProfile[]>([]);
   const [converted, setConverted] = useState<ConvertedText[]>([]);
@@ -186,7 +190,7 @@ export default function App() {
         <p>HandScan — Deine Handschrift, gezeichnet und digitalisiert ✨</p>
         <p className="mt-2 text-xs">
           <i className="fas fa-clock mr-1"></i>
-          Zuletzt aktualisiert: {LAST_UPDATE} Uhr
+          Zuletzt aktualisiert: {lastUpdate} Uhr
         </p>
       </footer>
     </div>

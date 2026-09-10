@@ -7,50 +7,42 @@ interface DrawingCanvasProps {
   penSize: number;
 }
 
-// Intelligente Buchstaben-Höhen für natürliches Aussehen
+// Einfache Buchstaben-Höhen
 const getNormalizedHeight = (char: string): number => {
   const lower = char.toLowerCase();
   
-  // === GROSSBUCHSTABEN ===
-  // ALLE Großbuchstaben (inkl. G, J, P, Q, Y): gleiche Höhe 120px
-  // KEINE Großbuchstaben gehen in den Keller!
+  // Großbuchstaben: 120px
   if (char !== lower) return 120;
   
-  // === KLEINBUCHSTABEN ===
-  // Kleinbuchstaben mit Oberlänge (ragen nach oben)
-  // b, d, f, h, k, l, t → x-height + Oberlänge
+  // Klein mit Oberlänge (b, d, f, h, k, l, t): 110px
   if ('bdfhklt'.includes(lower)) return 110;
   
-  // Kleinbuchstaben mit Unterlänge (Keller)
-  // g, j, p, q, y → x-height + Keller
-  // x-height = 55px, Keller = 25px → gesamt 80px
+  // Klein mit Keller (g, j, p, q, y): 80px
   if ('gjpqy'.includes(lower)) return 80;
   
-  // Kleinbuchstaben ohne Ober-/Unterlänge (reine x-height)
-  // a, c, e, m, n, o, r, s, u, v, w, x, z
-  if ('acemnorsuvwxz'.includes(lower)) return 55;
+  // Klein normal (a, c, e, m, n, o, r, s, u, v, w, x, z): 60px
+  if ('acemnorsuvwxz'.includes(lower)) return 60;
   
-  // 'i' mit Punkt (x-height + Punkt)
-  if (lower === 'i') return 70;
+  // i: 75px
+  if (lower === 'i') return 75;
   
-  // 'ß' (x-height)
-  if (lower === 'ß') return 55;
+  // ß: 60px
+  if (lower === 'ß') return 60;
   
-  // === ZAHLEN ===
-  if (/[0-9]/.test(char)) return 90;
+  // Zahlen: 100px
+  if (/[0-9]/.test(char)) return 100;
   
-  // === SATZZEICHEN ===
-  // ? und ! : so groß wie Großbuchstaben (120px)
+  // ? !: 120px
   if ('?!'.includes(char)) return 120;
   
-  // . , : kleiner
+  // . ,: 40px
   if ('.,'.includes(char)) return 40;
   
-  // Bindestrich - : sehr klein
-  if (char === '-') return 15;
+  // -: 20px
+  if (char === '-') return 20;
   
-  // Default
-  return 55;
+  // Default: 60px
+  return 60;
 };
 
 export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }: DrawingCanvasProps) {
@@ -63,9 +55,11 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
   const CANVAS_HEIGHT = 240;
 
   const drawGuide = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Weißer Hintergrund
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
+    // Hilfslinien (sehr hell)
     ctx.strokeStyle = '#f0f0f0';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
@@ -82,6 +76,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     ctx.setLineDash([]);
     
+    // Guide-Zeichen (sehr blass)
     const isUpperCase = currentChar !== currentChar.toLowerCase() && currentChar.toLowerCase() !== currentChar.toUpperCase();
     const displayChar = currentChar === ' ' ? '' : currentChar;
     
@@ -169,8 +164,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const imgData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const data = imgData.data;
     
-    const BG_THRESHOLD = 220;
-    
+    // Bounding Box finden - nur sehr dunkle Pixel (die gezeichneten Striche)
     let minX = CANVAS_WIDTH, minY = CANVAS_HEIGHT, maxX = 0, maxY = 0;
     let found = false;
     
@@ -181,7 +175,8 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
         const g = data[idx + 1];
         const b = data[idx + 2];
         
-        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
+        // Nur sehr dunkle Pixel (die gezeichneten Striche)
+        if (r < 100 && g < 100 && b < 100) {
           minX = Math.min(minX, x);
           minY = Math.min(minY, y);
           maxX = Math.max(maxX, x);
@@ -193,6 +188,7 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     
     if (!found) return;
     
+    // Padding
     const padding = 4;
     minX = Math.max(0, minX - padding);
     minY = Math.max(0, minY - padding);
@@ -202,59 +198,34 @@ export default function DrawingCanvas({ onSave, currentChar, penColor, penSize }
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
     
+    // Auf Ziel-Höhe skalieren
     const targetHeight = getNormalizedHeight(currentChar);
     const scale = targetHeight / cropHeight;
     const normalizedWidth = Math.round(cropWidth * scale);
     const normalizedHeight = targetHeight;
     
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = cropWidth;
-    tempCanvas.height = cropHeight;
-    const tempCtx = tempCanvas.getContext('2d')!;
+    // Neues Canvas mit transparentem Hintergrund
+    const resultCanvas = document.createElement('canvas');
+    resultCanvas.width = normalizedWidth;
+    resultCanvas.height = normalizedHeight;
+    const resultCtx = resultCanvas.getContext('2d')!;
     
-    // Transparenter Hintergrund - nur Striche werden gespeichert
-    tempCtx.clearRect(0, 0, cropWidth, cropHeight);
+    // Transparenter Hintergrund
+    resultCtx.clearRect(0, 0, normalizedWidth, normalizedHeight);
     
-    const tempImgData = tempCtx.getImageData(0, 0, cropWidth, cropHeight);
-    const tempData = tempImgData.data;
+    // Gezeichneten Bereich ausschneiden und skalieren
+    resultCtx.imageSmoothingEnabled = true;
+    resultCtx.imageSmoothingQuality = 'high';
+    resultCtx.drawImage(
+      canvas,
+      minX, minY, cropWidth, cropHeight,
+      0, 0, normalizedWidth, normalizedHeight
+    );
     
-    for (let y = 0; y < cropHeight; y++) {
-      for (let x = 0; x < cropWidth; x++) {
-        const srcIdx = ((y + minY) * CANVAS_WIDTH + (x + minX)) * 4;
-        const dstIdx = (y * cropWidth + x) * 4;
-        
-        const r = data[srcIdx];
-        const g = data[srcIdx + 1];
-        const b = data[srcIdx + 2];
-        
-        if (r < BG_THRESHOLD || g < BG_THRESHOLD || b < BG_THRESHOLD) {
-          tempData[dstIdx] = r;
-          tempData[dstIdx + 1] = g;
-          tempData[dstIdx + 2] = b;
-          tempData[dstIdx + 3] = 255;
-        }
-      }
-    }
-    
-    tempCtx.putImageData(tempImgData, 0, 0);
-    
-    const normCanvas = document.createElement('canvas');
-    normCanvas.width = normalizedWidth;
-    normCanvas.height = normalizedHeight;
-    const normCtx = normCanvas.getContext('2d')!;
-    
-    // TRANSPARENTER Hintergrund statt weiß!
-    // So können sich Buchstaben überlappen ohne sich zu verdecken
-    normCtx.clearRect(0, 0, normalizedWidth, normalizedHeight);
-    
-    normCtx.imageSmoothingEnabled = true;
-    normCtx.imageSmoothingQuality = 'high';
-    normCtx.drawImage(tempCanvas, 0, 0, normalizedWidth, normalizedHeight);
-    
-    // PNG statt JPEG (PNG unterstützt Transparenz)
-    const imageData = normCanvas.toDataURL('image/png');
+    // Als PNG speichern (unterstützt Transparenz)
+    const imageData = resultCanvas.toDataURL('image/png');
     onSave(imageData, normalizedWidth, normalizedHeight);
-  }, [hasDrawn, onSave]);
+  }, [hasDrawn, onSave, currentChar]);
 
   return (
     <div className="flex flex-col items-center">

@@ -2,7 +2,7 @@ import { DrawnChar } from '../types';
 
 /**
  * Rendert Text mit gezeichneten Buchstaben
- * Einfache, saubere Implementierung ohne komplexe Normalisierung
+ * Saubere Implementierung mit korrekter Bildladung
  */
 export async function renderText(
   text: string,
@@ -22,11 +22,46 @@ export async function renderText(
   } = options;
 
   // Einfache Abstände
-  const letterSpacing = fontSize * 0.05; // 5% Abstand zwischen Buchstaben
-  const wordSpacing = fontSize * 0.4; // 40% Abstand zwischen Wörtern
+  const letterSpacing = fontSize * 0.05;
+  const wordSpacing = fontSize * 0.4;
   const lineHeight = fontSize * 1.6;
 
-  // Zeilen berechnen
+  // === SCHRITT 1: Alle benötigten Bilder vorladen ===
+  const imageCache = new Map<string, HTMLImageElement>();
+  
+  const uniqueChars = new Set(text.split(''));
+  const loadPromises: Promise<void>[] = [];
+  
+  for (const char of uniqueChars) {
+    if (char === ' ' || char === '\n') continue;
+    
+    const variants = chars[char];
+    if (variants && variants.length > 0) {
+      // Für jeden Buchstaben: Alle Varianten laden
+      for (let i = 0; i < variants.length; i++) {
+        const variant = variants[i];
+        const cacheKey = `${char}_${i}`;
+        
+        if (!imageCache.has(cacheKey)) {
+          const promise = new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              imageCache.set(cacheKey, img);
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = variant.imageData;
+          });
+          loadPromises.push(promise);
+        }
+      }
+    }
+  }
+  
+  // Warten bis alle Bilder geladen sind
+  await Promise.all(loadPromises);
+
+  // === SCHRITT 2: Layout berechnen ===
   const lines: string[][] = [];
   let currentLine: string[] = [];
   let currentWidth = 0;
@@ -64,7 +99,7 @@ export async function renderText(
   }
   if (currentLine.length > 0) lines.push(currentLine);
 
-  // Canvas erstellen
+  // === SCHRITT 3: Canvas erstellen und rendern ===
   const padding = 24;
   const canvasWidth = maxWidth + padding * 2;
   const canvasHeight = lines.length * lineHeight + padding * 2;
@@ -94,29 +129,28 @@ export async function renderText(
 
       if (variants && variants.length > 0) {
         // Zufällige Variante für Natürlichkeit
-        const sample = variants[Math.floor(Math.random() * variants.length)];
-        const scale = fontSize / sample.height;
-        const drawWidth = sample.width * scale;
-        const drawHeight = fontSize;
-
-        // Bild laden
-        const img = new Image();
-        img.src = sample.imageData;
+        const variantIdx = Math.floor(Math.random() * variants.length);
+        const sample = variants[variantIdx];
+        const cacheKey = `${char}_${variantIdx}`;
         
-        // Warten bis Bild geladen ist
-        await new Promise<void>((resolve) => {
-          if (img.complete) {
-            resolve();
-          } else {
-            img.onload = () => resolve();
-            img.onerror = () => resolve();
-          }
-        });
+        const img = imageCache.get(cacheKey);
+        
+        if (img) {
+          const scale = fontSize / sample.height;
+          const drawWidth = sample.width * scale;
+          const drawHeight = fontSize;
 
-        // Buchstabe zeichnen
-        ctx.drawImage(img, x, y - drawHeight * 0.85, drawWidth, drawHeight);
+          // Buchstabe zeichnen - Bild ist bereits geladen!
+          ctx.drawImage(img, x, y - drawHeight * 0.85, drawWidth, drawHeight);
 
-        x += drawWidth + letterSpacing;
+          x += drawWidth + letterSpacing;
+        } else {
+          // Fallback wenn Bild nicht geladen werden konnte
+          ctx.font = `${fontSize}px Georgia, serif`;
+          ctx.fillStyle = penColor;
+          ctx.fillText(char, x, y);
+          x += fontSize * 0.5 + letterSpacing;
+        }
       } else {
         // Fallback: Standard-Font
         ctx.font = `${fontSize}px Georgia, serif`;

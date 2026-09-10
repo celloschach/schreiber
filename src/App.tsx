@@ -5,18 +5,9 @@ import HandwritingProfiles from './components/HandwritingProfiles';
 import ProfileDetail from './components/ProfileDetail';
 import ConvertedTexts from './components/ConvertedTexts';
 
-// Build-Timestamp wird von Vite beim Kompilieren eingefügt
-declare const __BUILD_TIME__: string;
-
 export default function App() {
-  // Datum und Uhrzeit des letzten Builds
-  const lastUpdate = new Date(__BUILD_TIME__).toLocaleString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // Datum und Uhrzeit des letzten Updates - MANUELL AKTUALISIEREN bei jedem Build!
+  const lastUpdate = '21.01.2026, 15:30 Uhr';
 
   const [view, setView] = useState<AppView>('profiles');
   const [profiles, setProfiles] = useState<HandwritingProfile[]>([]);
